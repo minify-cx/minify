@@ -36,3 +36,17 @@ test "$("$tmp/bin/minify" --version)" = "Minify++ $version"
 MINIFY_INSTALL_DIR="$tmp/bin" sh "$root/packaging/uninstall.sh"
 test ! -e "$tmp/bin/minify"
 echo "Minify++ packaging smoke passed"
+
+# Negative coverage: a tampered or missing checksum must fail closed.
+mkdir -p "$tmp/badrelease/minify-$version-$platform"
+cp "$root/minify" "$tmp/badrelease/minify-$version-$platform/minify"
+tar -czf "$tmp/badrelease/$archive" -C "$tmp/badrelease" "minify-$version-$platform"
+printf '0' > "$tmp/badrelease/SHA256SUMS"   # wrong format: no matching archive line
+if MINIFY_VERSION="$version" MINIFY_RELEASE_BASE="file://$tmp/badrelease" MINIFY_INSTALL_DIR="$tmp/bin" sh "$root/packaging/install.sh" >/dev/null 2>&1; then
+  echo "install must reject a missing checksum entry" >&2; exit 1
+fi
+printf '%s  %s\n' "0000000000000000000000000000000000000000000000000000000000000000" "$archive" > "$tmp/badrelease/SHA256SUMS"
+if MINIFY_VERSION="$version" MINIFY_RELEASE_BASE="file://$tmp/badrelease" MINIFY_INSTALL_DIR="$tmp/bin" sh "$root/packaging/install.sh" >/dev/null 2>&1; then
+  echo "install must reject a checksum mismatch" >&2; exit 1
+fi
+echo "Minify++ packaging negative checks passed"
