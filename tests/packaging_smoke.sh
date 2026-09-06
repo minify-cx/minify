@@ -50,3 +50,15 @@ if MINIFY_VERSION="$version" MINIFY_RELEASE_BASE="file://$tmp/badrelease" MINIFY
   echo "install must reject a checksum mismatch" >&2; exit 1
 fi
 echo "Minify++ packaging negative checks passed"
+
+# Safe staged replacement: overwriting an existing executable succeeds, an
+# existing destination symlink is replaced as a directory entry (referent
+# unchanged), and no staged installer file remains.
+printf 'old\n' > "$tmp/referent"
+ln -s "$tmp/referent" "$tmp/bin/minify"
+MINIFY_VERSION="$version" MINIFY_RELEASE_BASE="file://$tmp/release" MINIFY_INSTALL_DIR="$tmp/bin" sh "$root/packaging/install.sh"
+test ! -L "$tmp/bin/minify"
+test "$(cat "$tmp/referent")" = "old"
+test "$("$tmp/bin/minify" --version)" = "Minify++ $version"
+test -z "$(find "$tmp/bin" -name '.minify-install.*' -print -quit)"
+echo "Minify++ safe staged replacement passed"
