@@ -107,7 +107,21 @@ fix the problem before tagging where possible, and retain exact evidence.
 6. Commit and push all approved release-preparation changes. Recheck that
    `main` and the intended release commit are exactly the state validated.
 
-### 2. Create the GitHub release
+### 2. Rehearse without publishing
+
+1. Dispatch `.github/workflows/release.yml` manually with `version=X.Y.Z` at the
+   exact pushed candidate SHA (`origin/main`). The `workflow_dispatch` path runs
+   the same platform archive, packaging, public-script and sanitizer validation
+   jobs, then the `rehearse` job validates the exact four-archive asset set and
+   builds `SHA256SUMS` without creating or modifying any GitHub release.
+2. Confirm the run's `head` equals the candidate SHA, every job succeeds, and
+   the rehearsal bundle contains exactly
+   `minify-$version-{linux-x86_64,macos-arm64,macos-x86_64}.tar.gz`,
+   `minify-$version-windows-x86_64.zip` and `SHA256SUMS`.
+3. Download the rehearsal artifact and review the checksums against a locally
+   built archive set for the same version.
+
+### 3. Create the GitHub release
 
 1. Obtain explicit approval for the public release action.
 2. Create the approved annotated `vX.Y.Z` tag at the validated commit and push
@@ -127,7 +141,7 @@ fix the problem before tagging where possible, and retain exact evidence.
    archive at the same URL. A workflow rerun should leave an existing release
    untouched.
 
-### 3. Close the release
+### 4. Close the release
 
 1. Record the exact tag/commit, GitHub release and workflow URLs, final
    checksums, installation tests and known limitations in this handover.
