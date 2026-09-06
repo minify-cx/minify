@@ -53,12 +53,17 @@ echo "Minify++ packaging negative checks passed"
 
 # Safe staged replacement: overwriting an existing executable succeeds, an
 # existing destination symlink is replaced as a directory entry (referent
-# unchanged), and no staged installer file remains.
+# unchanged), a stale candidate staging file is never followed or
+# overwritten, and no staged installer file remains.
 printf 'old\n' > "$tmp/referent"
 ln -s "$tmp/referent" "$tmp/bin/minify"
+printf 'stale-referent\n' > "$tmp/stale-referent"
+ln -s "$tmp/stale-referent" "$tmp/bin/.minify-install.zzzzzz"
 MINIFY_VERSION="$version" MINIFY_RELEASE_BASE="file://$tmp/release" MINIFY_INSTALL_DIR="$tmp/bin" sh "$root/packaging/install.sh"
 test ! -L "$tmp/bin/minify"
 test "$(cat "$tmp/referent")" = "old"
+test -L "$tmp/bin/.minify-install.zzzzzz"
+test "$(cat "$tmp/stale-referent")" = "stale-referent"
 test "$("$tmp/bin/minify" --version)" = "Minify++ $version"
-test -z "$(find "$tmp/bin" -name '.minify-install.*' -print -quit)"
+test "$(find "$tmp/bin" -name '.minify-install.*' ! -name '.minify-install.zzzzzz' | wc -l)" -eq 0
 echo "Minify++ safe staged replacement passed"
