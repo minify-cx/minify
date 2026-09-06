@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Full release-candidate suite
         run: |
-          npm install -g typescript
+          npm install --no-save --no-package-lock typescript postcss postcss-selector-parser postcss-value-parser
           make -j2
           make test
           make test-sanitize
