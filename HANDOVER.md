@@ -8,7 +8,7 @@ development guidance lives in `docs/handover/`.
 
 - Product: **Minify++**.
 - Executable: `minify`.
-- Current CLI version: `1.1.0`.
+- Current CLI version: `1.1.1`.
 - Public format/API version: `minify::format_version == 1`.
 - Language/toolchain: C++17 and Make.
 - Supported current formats: HTML, CSS, JavaScript, JSX, JSON, XML, and SVG.
@@ -112,6 +112,12 @@ repository state, and remaining limitations.
 
 Do not commit, push, tag, release, deploy, or make destructive public/repository
 changes without explicit approval.
+
+The detailed operational checklist is `RELEASE.md`. The public `install`,
+`download`, `update` and `uninstall` scripts are canonical under `packaging/`
+and must be deployed byte-for-byte before the non-publishing release rehearsal.
+Only the exact rehearsed commit may be tagged, and published assets are
+immutable.
 
 ## Deeper handovers
 

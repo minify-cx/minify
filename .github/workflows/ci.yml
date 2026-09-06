@@ -24,7 +24,9 @@ jobs:
       - name: Build
         run: make -j2
       - name: Test
-        run: make test
+        run: |
+          make test
+          make test-packaging
       - name: Sanitize build
         run: make test-sanitize
       - name: distcheck

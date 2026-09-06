@@ -13,7 +13,7 @@ incident or turn finite evidence into universal correctness.
 
 ## Candidate identity and environment
 
-- standalone CLI version: 1.1.0;
+- standalone CLI version: 1.1.1;
 - public format/API version: 1;
 - language/build: C++17 and Make;
 - directly validated host: Linux 7.0.0 x86-64;

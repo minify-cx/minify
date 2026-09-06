@@ -38,8 +38,8 @@ base="${MINIFY_RELEASE_BASE:-https://github.com/$repo/releases/download/v$versio
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/minify-install.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
-curl -fsSL "$base/$archive" -o "$tmp/$archive"
-curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
+curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "$base/$archive" -o "$tmp/$archive"
+curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS"
 expected="$(awk -v file="$archive" '$2 == file { print $1; exit }' "$tmp/SHA256SUMS")"
 [ -n "$expected" ] || { echo "minify installer: checksum for $archive not found" >&2; exit 1; }
 
