@@ -2,11 +2,14 @@
 
 ## Authority and current state
 
-The release candidate executable currently reports `Minify++ 1.1.1` (`minify
---version`; the public API format version is `1` in `include/minify/Minify.h`).
-The repository remote is `minify-cx/minify`. Exact tag, artifact, and public
-release conventions follow `PACKAGING.md`-style evidence in this document and
-the actual Git/release state.
+- Latest public release: **v1.1.1** at released commit
+  `80043581db61e61a417c0d10c2a0ac50a7a95de5`.
+- Current development version: **1.1.2** (`minify --version` reports
+  `Minify++ 1.1.2`; the public API format version is `1` in
+  `include/minify/Minify.h`).
+- The repository remote is `minify-cx/minify`. Exact tag, artifact, and public
+  release conventions follow `PACKAGING.md`-style evidence in this document and
+  the actual Git/release state.
 
 A website content checkpoint, regression checkpoint, and executable version are
 distinct identities. Do not synchronize version numbers mechanically.
