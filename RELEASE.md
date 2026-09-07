@@ -4,7 +4,7 @@
 
 The release candidate executable currently reports `Minify++ 1.1.1` (`minify
 --version`; the public API format version is `1` in `include/minify/Minify.h`).
-The repository remote is `nift-dev/minify`. Exact tag, artifact, and public
+The repository remote is `minify-cx/minify`. Exact tag, artifact, and public
 release conventions follow `PACKAGING.md`-style evidence in this document and
 the actual Git/release state.
 
@@ -39,7 +39,7 @@ Proportionately include:
 5. Exact synchronization with the Nift embedded subtree
    (`make check-nift-sync NIFT_MINIFYPP_DIR=/path/to/nift/minifypp`) and with
    the standalone Jsonic++ JSON parser source.
-6. Review the website (`minify-website`): complete any release-targeted items,
+6. Review the website (`minify-cx/minify-cx.github.io`): complete any release-targeted items,
    build the website with the candidate binary where relevant, and verify the
    generated site.
 7. Reconcile README, docs, website, AI context, release notes, decisions, and
@@ -56,15 +56,16 @@ the installed binary version.
 
 ## Website publication
 
-The Minify++ website source is a separate repository (`nift-dev/minify-website`)
+The Minify++ website source is a separate repository
+(`minify-cx/minify-cx.github.io`)
 on its authoritative `stage` branch. Its nested `public/` is a separate
 generated Git checkout on `main`. For publication checkpoints, commit the
 rebuilt/generated `public/` checkout on `main` first, then the corresponding
 authoritative source changes on `stage`, and verify both trees are clean.
 
 The canonical `packaging/install.sh`, `download.sh`, `update.sh` and
-`uninstall.sh` files are served byte-for-byte as the corresponding extensionless
-paths below `https://nift-dev.github.io/minify-website/`. When any script
+`uninstall.sh` files are served byte-for-byte as the corresponding `.sh`
+endpoints below `https://minify.cx/`. When any script
 changes, copy all four to the website root and generated `public/` checkout.
 Commit generated output first, then website source, deploy them, and verify the
 live bytes before release rehearsal.
@@ -125,7 +126,7 @@ fix the problem before tagging where possible, and retain exact evidence.
 
 1. Obtain explicit approval for the public release action.
 2. Create the approved annotated `vX.Y.Z` tag at the validated commit and push
-   it to `nift-dev/minify`.
+   it to `minify-cx/minify`.
 3. Watch `.github/workflows/release.yml`. All Linux, macOS and Windows artifact
    jobs plus the packaging and public-script gates must succeed before the GitHub release is
    created. After publication, require `installer-public-smoke` to pass on

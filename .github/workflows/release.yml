@@ -116,7 +116,7 @@ jobs:
           make -j2
           make test-packaging
           for script in install download update uninstall; do
-            curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "https://nift-dev.github.io/minify-website/$script" -o "/tmp/$script.sh"
+            curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL "https://minify.cx/$script.sh" -o "/tmp/$script.sh"
             cmp "packaging/$script.sh" "/tmp/$script.sh"
             sh -n "/tmp/$script.sh"
           done
@@ -191,7 +191,7 @@ jobs:
       - name: Install tagged release through public installer
         shell: bash
         run: |
-          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL https://nift-dev.github.io/minify-website/install -o /tmp/minify-install.sh
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL https://minify.cx/install.sh -o /tmp/minify-install.sh
           cmp packaging/install.sh /tmp/minify-install.sh
           version="${GITHUB_REF_NAME#v}"
           MINIFY_VERSION="$version" MINIFY_INSTALL_DIR="$RUNNER_TEMP/minify-bin" sh /tmp/minify-install.sh
