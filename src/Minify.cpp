@@ -14,6 +14,67 @@ bool ws(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
 }
 
+bool js_line_terminator_in(const std::string& input, std::size_t begin, std::size_t end) {
+    for (std::size_t i = begin; i < end; ++i) {
+        if (input[i] == '\n' || input[i] == '\r') return true;
+        if (i + 2 < end && static_cast<unsigned char>(input[i]) == 0xe2 &&
+            static_cast<unsigned char>(input[i + 1]) == 0x80 &&
+            (static_cast<unsigned char>(input[i + 2]) == 0xa8 ||
+             static_cast<unsigned char>(input[i + 2]) == 0xa9)) return true;
+    }
+    return false;
+}
+
+bool copy_template_literal(const std::string& input, std::size_t& i,
+                           std::string& output, std::string& error) {
+    struct Frame { bool expression; std::size_t braces; };
+    std::vector<Frame> stack;
+    output.push_back(input[i++]);
+    stack.push_back({false, 0});
+    while (i < input.size()) {
+        char c = input[i++];
+        output.push_back(c);
+        Frame& frame = stack.back();
+        if (!frame.expression) {
+            if (c == '\\' && i < input.size()) output.push_back(input[i++]);
+            else if (c == '`') {
+                stack.pop_back();
+                if (stack.empty()) return true;
+            } else if (c == '$' && i < input.size() && input[i] == '{') {
+                output.push_back(input[i++]);
+                frame.expression = true;
+                frame.braces = 1;
+            }
+            continue;
+        }
+        if (c == '\'' || c == '"') {
+            const char quote = c;
+            bool escaped = false;
+            while (i < input.size()) {
+                char q = input[i++]; output.push_back(q);
+                if (escaped) escaped = false;
+                else if (q == '\\') escaped = true;
+                else if (q == quote) break;
+            }
+        } else if (c == '`') {
+            stack.push_back({false, 0});
+        } else if (c == '/' && i < input.size() && input[i] == '/') {
+            output.push_back(input[i++]);
+            while (i < input.size()) { char q=input[i++]; output.push_back(q); if (q=='\n'||q=='\r') break; }
+        } else if (c == '/' && i < input.size() && input[i] == '*') {
+            output.push_back(input[i++]);
+            while (i < input.size()) { char q=input[i++]; output.push_back(q); if (q=='*'&&i<input.size()&&input[i]=='/') { output.push_back(input[i++]); break; } }
+        } else if (c == '{') {
+            ++frame.braces;
+        } else if (c == '}' && --frame.braces == 0) {
+            frame.expression = false;
+        }
+    }
+    error = "unterminated JavaScript template literal";
+    output.clear();
+    return false;
+}
+
 bool word_char(char c) {
     const unsigned char u = static_cast<unsigned char>(c);
     // Be deliberately conservative for UTF-8: non-ASCII bytes may belong to a
@@ -373,12 +434,27 @@ static bool follows_attribute_equals(const std::string& input, std::size_t pos,
     return pos > tag_start + 1 && input[pos - 1] == '=';
 }
 
+static bool tag_has_preserved_whitespace_style(const std::string& tag) {
+    std::string compact;
+    compact.reserve(tag.size());
+    for (unsigned char c : tag)
+        if (!ws(static_cast<char>(c))) compact.push_back(static_cast<char>(std::tolower(c)));
+    const auto p = compact.find("white-space:");
+    if (p == std::string::npos) return false;
+    const auto value = p + 12;
+    return compact.compare(value, 3, "pre") == 0 ||
+           compact.compare(value, 12, "break-spaces") == 0;
+}
+
 bool html(const std::string& input, std::string& output, std::string& error) {
     output.clear();
     output.reserve(input.size());
 
     bool pending_space = false;
     std::string raw_tag;
+    bool raw_tag_can_nest = false;
+    std::size_t raw_tag_depth = 0;
+    bool preserve_final_whitespace = false;
 
     for (std::size_t i = 0; i < input.size();) {
         if (!raw_tag.empty()) {
@@ -386,31 +462,49 @@ bool html(const std::string& input, std::string& output, std::string& error) {
             std::size_t p = i;
             bool found = false;
             for (; p < input.size(); ++p) {
-                if (!starts_ci(input, p, close)) continue;
-                const std::size_t after = p + close.size();
-                if (after < input.size() &&
-                    (input[after] == '>' || ws(input[after]))) {
-                    found = true;
-                    break;
+                if (raw_tag_can_nest && starts_ci(input, p, "<" + raw_tag)) {
+                    const std::size_t after = p + raw_tag.size() + 1;
+                    if (after < input.size() && (input[after] == '>' || input[after] == '/' || ws(input[after])))
+                        ++raw_tag_depth;
+                }
+                if (starts_ci(input, p, close)) {
+                    const std::size_t after = p + close.size();
+                    if (after < input.size() && (input[after] == '>' || ws(input[after]))) {
+                        if (raw_tag_can_nest && raw_tag_depth > 1) {
+                            --raw_tag_depth;
+                        } else {
+                            found = true;
+                            break;
+                        }
+                    }
                 }
             }
             if (!found) {
                 output.append(input, i, std::string::npos);
+                preserve_final_whitespace = true;
                 i = input.size();
                 break;
             }
             output.append(input, i, p - i);
             i = p;
             raw_tag.clear();
+            raw_tag_can_nest = false;
+            raw_tag_depth = 0;
             continue;
         }
 
         if (input.compare(i, 4, "<!--") == 0) {
             const auto end = input.find("-->", i + 4);
             if (end == std::string::npos) {
-                error = "unterminated HTML comment";
-                output.clear();
-                return false;
+                // HTML recovers an ordinary comment at EOF. Preserve special
+                // conditional/SSI forms; an ordinary trailing comment is
+                // removable just like a terminated ordinary comment.
+                const bool preserve = starts_ci(input, i, "<!--[if") ||
+                                      input.compare(i, 5, "<!--#") == 0 ||
+                                      input.compare(i, 5, "<!--!") == 0;
+                if (preserve) output.append(input, i, std::string::npos);
+                i = input.size();
+                break;
             }
             const bool preserve = starts_ci(input, i, "<!--[if") ||
                                   input.compare(i, 5, "<!--#") == 0 ||
@@ -428,6 +522,16 @@ bool html(const std::string& input, std::string& output, std::string& error) {
         }
 
         if (input[i] == '<') {
+            // A second '<' cannot belong to the current tag opener. Browsers
+            // emit the first one as text and reconsume the second, which may
+            // begin a real raw-text element such as <<script>.
+            if (i + 1 < input.size() && input[i + 1] == '<') {
+                if (pending_space && !output.empty()) output.push_back(' ');
+                pending_space = false;
+                output.push_back('<');
+                ++i;
+                continue;
+            }
             // Whitespace between elements is a real HTML text node and can
             // become observable when CSS changes display/layout. Collapse it,
             // but do not erase it simply because the next token is a tag.
@@ -481,7 +585,7 @@ bool html(const std::string& input, std::string& output, std::string& error) {
                         (output.back() == '<' ||
                          (output.back() == '/' && output.size() >= 2 && output[output.size() - 2] == '<'));
                     if (tag_space && !output.empty() &&
-                        (after_tag_prefix || (output.back() != '/' && c != '>' && c != '/')))
+                        (after_tag_prefix || c != '>'))
                         output.push_back(' ');
                     tag_space = false;
                     output.push_back(c);
@@ -496,8 +600,23 @@ bool html(const std::string& input, std::string& output, std::string& error) {
                 while (e < j && (std::isalnum(static_cast<unsigned char>(input[e])) ||
                                  input[e] == '-' || input[e] == ':')) ++e;
                 const std::string name = lower(input.substr(n, e - n));
-                if (name == "pre" || name == "textarea" || name == "script" || name == "style")
+                if (name == "pre" || name == "textarea" || name == "script" ||
+                    name == "style" || name == "xmp" || name == "listing" ||
+                    name == "iframe") {
                     raw_tag = name;
+                } else if (name == "plaintext") {
+                    raw_tag = name; // no closing tag exists; preserve to EOF
+                } else if (name == "svg" || name == "math") {
+                    // Foreign-content parsing has different script and
+                    // self-closing rules. Preserve the subtree verbatim.
+                    raw_tag = name;
+                    raw_tag_can_nest = true;
+                    raw_tag_depth = 1;
+                } else if (!name.empty() && tag_has_preserved_whitespace_style(input.substr(i, j - i))) {
+                    raw_tag = name;
+                    raw_tag_can_nest = true;
+                    raw_tag_depth = 1;
+                }
             }
             i = j;
             continue;
@@ -514,7 +633,8 @@ bool html(const std::string& input, std::string& output, std::string& error) {
         output.push_back(input[i++]);
     }
 
-    while (!output.empty() && ws(output.back())) output.pop_back();
+    if (!preserve_final_whitespace)
+        while (!output.empty() && ws(output.back())) output.pop_back();
     while (!output.empty() && ws(output.front())) output.erase(output.begin());
     error.clear();
     return true;
@@ -530,6 +650,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     bool pending_space = false;
     bool pending_newline = false;
+    bool regex_boundary = false;
     bool can_start_regex = true;
     bool pending_control_paren = false;
     std::vector<bool> control_parens;
@@ -553,6 +674,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     (output.back() == '-' && next == '-') ||
                     (output.back() == '/' && next == '/') ||
                     (output.back() == '/' && next == '*') ||
+                    (regex_boundary &&
+                     (std::isalpha(static_cast<unsigned char>(next)) || next == '_' ||
+                      next == '$' || static_cast<unsigned char>(next) >= 0x80)) ||
                     (output.back() == '*' && next == '/') ||
                     (preserve_jsx_boundaries && output.back() == '<' &&
                      (std::isalpha(static_cast<unsigned char>(next)) || next == '>' || next == '/')) ||
@@ -560,6 +684,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             output.push_back(' ');
         }
         pending_space = pending_newline = false;
+        regex_boundary = false;
     };
 
     auto copy_quoted = [&](std::size_t& i, char quote) {
@@ -663,7 +788,16 @@ static bool minify_javascript(const std::string& input, std::string& output,
             continue;
         }
 
-        if (c == '\'' || c == '"' || c == '`') {
+        if (c == '`') {
+            emit_pending(c);
+            if (!copy_template_literal(input, i, output, error)) return false;
+            pending_control_paren = false;
+            can_start_regex = false;
+            last_token = "value";
+            continue;
+        }
+
+        if (c == '\'' || c == '"') {
             if (!copy_quoted(i, c)) return false;
             pending_control_paren = false;
             can_start_regex = false;
@@ -713,8 +847,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 output.clear();
                 return false;
             }
-            const bool had_newline = input.find('\n', i + 2) < close ||
-                                     input.find('\r', i + 2) < close;
+            const bool had_newline = js_line_terminator_in(input, i + 2, close);
             if (preserve) {
                 emit_pending('/');
                 output.append(input, i, close + 2 - i);
@@ -765,6 +898,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
+            pending_space = true;
+            regex_boundary = true;
             continue;
         }
 

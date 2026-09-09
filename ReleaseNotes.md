@@ -9,6 +9,17 @@
   instead of misclassifying them as unterminated quoted attributes. This defect
   was found by the independent WPT HTML conformance harness and is retained in
   the standalone smoke suite.
+- Preserve HTML self-closing and following-attribute boundaries after unquoted
+  values, raw/preformatted content (`iframe`, `xmp`, `listing`, `plaintext` and
+  inline preserved-whitespace styles), foreign SVG/MathML subtrees, recoverable
+  `<<script>` openers, and ordinary comments recovered at EOF. These families
+  were reduced from the complete independent 9,651-case WPT HTML run.
+- Preserve nested template-literal source text, Unicode U+2028/U+2029 line
+  terminators carried by removed JavaScript block comments, and the required
+  boundary between a regular-expression literal and a following word token.
+  These fixes reduce seven genuine failures found by the complete selected
+  Test262 run; all 39,741 cases runnable under the pinned Node runtime then
+  preserve behavior after minification.
 
 ## v1.1.1
 
