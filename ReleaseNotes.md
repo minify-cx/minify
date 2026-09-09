@@ -5,6 +5,10 @@
 - Post-release development version after the public **v1.1.1** release. The
   executable identity is advanced to `1.1.2` for further development; the public
   API format version remains `1`.
+- Accept browser-recoverable stray quotes in unquoted HTML attribute values
+  instead of misclassifying them as unterminated quoted attributes. This defect
+  was found by the independent WPT HTML conformance harness and is retained in
+  the standalone smoke suite.
 
 ## v1.1.1
 

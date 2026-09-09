@@ -367,6 +367,12 @@ bool css(const std::string& input, std::string& output, std::string& error) {
     return true;
 }
 
+static bool follows_attribute_equals(const std::string& input, std::size_t pos,
+                                     std::size_t tag_start) {
+    while (pos > tag_start + 1 && ws(input[pos - 1])) --pos;
+    return pos > tag_start + 1 && input[pos - 1] == '=';
+}
+
 bool html(const std::string& input, std::string& output, std::string& error) {
     output.clear();
     output.reserve(input.size());
@@ -437,7 +443,10 @@ bool html(const std::string& input, std::string& output, std::string& error) {
                 if (quoted) {
                     if (c == '\\') ++j;
                     else if (c == quote) quoted = false;
-                } else if (c == '\'' || c == '"') {
+                } else if ((c == '\'' || c == '"') && follows_attribute_equals(input, j, i)) {
+                    // A quote only opens a quoted attribute value immediately
+                    // after '='. Browsers keep a stray quote in an unquoted
+                    // value as data, even though it is a parse error.
                     quoted = true; quote = c;
                 } else if (c == '>') {
                     ++j;
@@ -460,7 +469,7 @@ bool html(const std::string& input, std::string& output, std::string& error) {
                     output.push_back(c);
                     if (c == '\\' && k + 1 < j) output.push_back(input[++k]);
                     else if (c == tag_quote) in_quote = false;
-                } else if (c == '\'' || c == '"') {
+                } else if ((c == '\'' || c == '"') && follows_attribute_equals(input, k, i)) {
                     if (tag_space && !output.empty() && output.back() != '<' && output.back() != ' ')
                         output.push_back(' ');
                     tag_space = false;

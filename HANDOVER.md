@@ -54,6 +54,11 @@ changes should originate here, pass standalone validation, be synchronized into
 Nift, and then pass Nift integration. Document allowed wrapper/build differences
 rather than forcing every file to match.
 
+The v1.1.2 development tree contains an HTML scanner correction found by the
+independent WPT harness. Nift's embedded `Minify.cpp` must therefore be updated
+before the next Nift release; until then the standalone/Nift equality gate is
+expected to report this deliberate pending synchronization.
+
 Nift minification is opt-in by configured extension and occurs at the final-output
 boundary. Minify++ does not depend on Nift's parser, tracking state, or build
 engine.

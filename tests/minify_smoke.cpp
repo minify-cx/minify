@@ -180,6 +180,8 @@ int main() {
     expect(out.find("/* raw */") != std::string::npos, "HTML raw style text changed");
     expect(!minify::html("<div class=\"x\"", out, err), "malformed HTML tag accepted");
     expect(err.find("unterminated HTML tag") != std::string::npos, "malformed HTML error missing");
+    expect(minify::html("<link href=mailto:test@example.com\">", out, err), err);
+    eq(out, "<link href=mailto:test@example.com\">", "HTML stray quote in unquoted attribute");
     expect(minify::html("<p>héllo 😀 世界</p>", out, err), err);
     expect(out.find("héllo 😀 世界") != std::string::npos, "HTML Unicode damaged");
     expect(minify::html("<!doctype html><template><span>A</span> <span>B</span></template>", out, err), err);
