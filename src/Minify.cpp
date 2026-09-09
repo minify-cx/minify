@@ -1122,11 +1122,30 @@ static bool looks_like_jsx_start(const std::string& input, std::size_t i) {
 
 static bool looks_like_jsx_root_start(const std::string& input, std::size_t i) {
     if (!looks_like_jsx_start(input, i)) return false;
-    if (input[i + 1] == '/' || input[i + 1] == '>') return true;
+    // A closing tag can only belong to a root already being copied. Treating
+    // it as a fresh root makes ordinary standalone JSX expressions appear
+    // unterminated when their opening tag followed an ASI boundary.
+    if (input[i + 1] == '/') return false;
+    if (input[i + 1] == '>') return true;
 
     std::size_t p = i;
-    while (p > 0 && ws(input[p - 1])) --p;
+    bool crossed_line = false;
+    while (p > 0 && ws(input[p - 1])) {
+        crossed_line = crossed_line || input[p - 1] == '\n' ||
+                       input[p - 1] == '\r';
+        --p;
+    }
     if (p == 0) return true;
+    if (crossed_line && (input[p - 1] == '}' || input[p - 1] == ')' ||
+                         input[p - 1] == '\'' || input[p - 1] == '"')) return true;
+    if (crossed_line) {
+        const auto line_start_pos = input.rfind('\n', p - 1);
+        std::size_t line_start =
+            line_start_pos == std::string::npos ? 0 : line_start_pos + 1;
+        while (line_start < p && ws(input[line_start])) ++line_start;
+        if (line_start + 1 < p && input[line_start] == '/' &&
+            input[line_start + 1] == '/') return true;
+    }
 
     const char prev = input[p - 1];
     if (prev == '=' || prev == '(' || prev == '[' || prev == '{' || prev == ',' ||
@@ -1145,6 +1164,7 @@ static bool looks_like_jsx_root_start(const std::string& input, std::size_t i) {
     }
     const std::string word = input.substr(p, end - p);
     return word == "return" || word == "yield" || word == "await" ||
+           word == "default" ||
            word == "case" || word == "throw";
 }
 
@@ -1240,6 +1260,20 @@ static bool find_nested_jsx_end(const std::string& input, std::size_t start,
                     ++j; continue;
                 }
                 if (c == '\'' || c == '"') { quoted = true; quote = c; ++j; continue; }
+                if (c == '/' && j + 1 < limit && input[j + 1] == '/') {
+                    j += 2;
+                    while (j < limit && input[j] != '\n' && input[j] != '\r') ++j;
+                    continue;
+                }
+                if (c == '/' && j + 1 < limit && input[j + 1] == '*') {
+                    const auto close = input.find("*/", j + 2);
+                    if (close == std::string::npos || close >= limit) {
+                        error = "unterminated comment in nested JSX tag";
+                        return false;
+                    }
+                    j = close + 2;
+                    continue;
+                }
                 if (c == '{') {
                     std::size_t q = 0;
                     if (!find_jsx_expression_end(input, j + 1, limit, q, error)) return false;
@@ -1498,7 +1532,12 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
         }
         if (!looks_like_jsx_root_start(input, i)) { ++i; continue; }
 
+        bool root_follows_line = false;
+        for (std::size_t k = i; k > js_start && ws(input[k - 1]); --k)
+            root_follows_line = root_follows_line ||
+                                input[k - 1] == '\n' || input[k - 1] == '\r';
         if (!flush_js(i)) return false;
+        if (root_follows_line) output.push_back('\n');
 
         // Copy one JSX region conservatively. Markup/text are preserved except
         // formatting whitespace inside tags; {...} expressions are recursively
@@ -1525,6 +1564,22 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
                     }
                     if (c == '\'' || c == '"' || (attribute_braces && c == '`')) {
                         quoted = true; q = c; continue;
+                    }
+                    if (c == '/' && j + 1 < input.size() && input[j + 1] == '/') {
+                        ++j;
+                        while (j + 1 < input.size() &&
+                               input[j + 1] != '\n' && input[j + 1] != '\r') ++j;
+                        continue;
+                    }
+                    if (c == '/' && j + 1 < input.size() && input[j + 1] == '*') {
+                        const auto close = input.find("*/", j + 2);
+                        if (close == std::string::npos) {
+                            error = "unterminated comment in JSX tag";
+                            output.clear();
+                            return false;
+                        }
+                        j = close + 1;
+                        continue;
                     }
                     if (c == '{') { ++attribute_braces; continue; }
                     if (c == '}' && attribute_braces) { --attribute_braces; continue; }
@@ -1611,6 +1666,40 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
         }
         i = p;
         js_start = i;
+        // The JavaScript minifier receives the suffix after this JSX region as
+        // a separate fragment. Preserve a line terminator from the boundary so
+        // ASI still separates a JSX expression from a following declaration,
+        // export, or expression statement.
+        std::size_t boundary = p;
+        bool had_line_terminator = false;
+        while (boundary < input.size()) {
+            if (ws(input[boundary])) {
+                had_line_terminator = had_line_terminator ||
+                                      input[boundary] == '\n' ||
+                                      input[boundary] == '\r';
+                ++boundary;
+                continue;
+            }
+            if (boundary + 1 < input.size() && input[boundary] == '/' &&
+                input[boundary + 1] == '/') {
+                boundary += 2;
+                while (boundary < input.size() &&
+                       input[boundary] != '\n' && input[boundary] != '\r') ++boundary;
+                continue;
+            }
+            if (boundary + 1 < input.size() && input[boundary] == '/' &&
+                input[boundary + 1] == '*') {
+                const auto close = input.find("*/", boundary + 2);
+                if (close == std::string::npos) break;
+                for (std::size_t k = boundary; k < close + 2; ++k)
+                    had_line_terminator = had_line_terminator ||
+                                          input[k] == '\n' || input[k] == '\r';
+                boundary = close + 2;
+                continue;
+            }
+            break;
+        }
+        if (had_line_terminator) output.push_back('\n');
     }
 
     if (!flush_js(input.size())) return false;

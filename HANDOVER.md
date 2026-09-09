@@ -54,8 +54,8 @@ changes should originate here, pass standalone validation, be synchronized into
 Nift, and then pass Nift integration. Document allowed wrapper/build differences
 rather than forcing every file to match.
 
-The v1.1.2 development tree contains HTML and JavaScript scanner corrections
-found by the independent WPT/Test262 harnesses. Nift's embedded `Minify.cpp`
+The v1.1.2 development tree contains HTML, JavaScript and JSX scanner corrections
+found by the independent WPT, Test262 and TypeScript JSX harnesses. Nift's embedded `Minify.cpp`
 and retained minifier tests must therefore be updated before the next Nift
 release; until then the standalone/Nift equality gate is expected to report
 this deliberate pending synchronization. The supplied conformance workspace

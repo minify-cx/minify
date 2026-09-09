@@ -547,6 +547,22 @@ int main() {
     expect(minify::jsx("const x = <><A/><B>{ {x: 1}.x }</B></>;", out, err), err);
     expect(out.find("{ {x:1}.x}") != std::string::npos || out.find("{{x:1}.x}") != std::string::npos,
            "nested JSX object expression damaged");
+    // TypeScript JSX-conformance regressions: separate JavaScript fragments
+    // around a JSX root must retain ASI boundaries, closing tags are never
+    // fresh roots, and a line comment before a standalone root is trivia.
+    expect(minify::jsx("import {h} from './h'\n<h></h>\nexport * from './x';", out, err), err);
+    expect(out.find("'./h'\n<h>") != std::string::npos,
+           "line boundary before standalone JSX root removed");
+    expect(out.find("</h>\nexport") != std::string::npos,
+           "line boundary after JSX root removed");
+    expect(minify::jsx("function Test() {}\n<Test></Test>\n", out, err), err);
+    expect(out.find("<Test></Test>") != std::string::npos,
+           "closing JSX tag was treated as a fresh root");
+    expect(minify::jsx("// component expression\n<M a={() => <button>test</button>}/>\n"
+                       "class Next {}", out, err), err);
+    expect(out.find("<button>test</button>") != std::string::npos &&
+           out.find("/>\nclass") != std::string::npos,
+           "comment-delimited JSX root or following ASI boundary damaged");
     expect(minify::svg("<svg xmlns=\"http://www.w3.org/2000/svg\">\n <text>hello   world</text>\n <path d=\"M 0 0 L 10 10\" />\n</svg>", out, err), err);
     expect(out.find("hello   world") != std::string::npos, "SVG text whitespace changed");
     expect(out.find("M 0 0 L 10 10") != std::string::npos, "SVG path attribute changed");

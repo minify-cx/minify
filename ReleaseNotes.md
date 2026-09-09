@@ -20,6 +20,15 @@
   These fixes reduce seven genuine failures found by the complete selected
   Test262 run; all 39,741 cases runnable under the pinned Node runtime then
   preserve behavior after minification.
+- Preserve ASI-significant line boundaries before and after JSX roots, never
+  reinterpret closing tags as fresh roots, and recognize standalone JSX after
+  line-comment boundaries. The pinned TypeScript JSX corpus exposed these
+  scanner defects; the corrected complete run preserves all 221 eligible
+  JSX/TSX programs.
+- Added independent complete-corpus checkpoints for the remaining claimed
+  formats: 93/93 eligible JSONTestSuite documents, 535/535 conservative W3C XML
+  documents and 1,176/1,176 strict standalone WPT SVG documents preserve their
+  format-specific semantic projections.
 
 ## v1.1.1
 
