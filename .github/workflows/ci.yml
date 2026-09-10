@@ -17,7 +17,7 @@ jobs:
           - runner: macos-latest
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - name: Install test oracles
         run: |
           npm install --no-save --no-package-lock typescript postcss postcss-selector-parser postcss-value-parser
@@ -36,7 +36,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
       - uses: actions/setup-node@v7
         with:
           node-version: 20
