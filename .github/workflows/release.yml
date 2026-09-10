@@ -63,7 +63,7 @@ jobs:
           printf 'const answer = 40 + 2;\n' > archive-check/input.js
           "archive-check/$root/minify" archive-check/input.js
           test -s archive-check/input.min.js
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: ${{ matrix.platform }}
           path: minify-*.tar.gz
@@ -100,7 +100,7 @@ jobs:
           mkdir archive-check
           powershell.exe -NoProfile -Command "Expand-Archive -Path '$root.zip' -DestinationPath 'archive-check'"
           test "$("archive-check/$root/minify.exe" --version)" = "Minify++ $version"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: windows-x86_64
           path: minify-*.zip
@@ -174,7 +174,7 @@ jobs:
           expected_sorted="$(printf '%s\n' $expected | sort | tr '\n' ' ')"
           test "$actual" = "$expected_sorted"
           (cd dist && sha256sum minify-* | sort > SHA256SUMS)
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: rehearsal-${{ inputs.version }}
           path: dist/*
