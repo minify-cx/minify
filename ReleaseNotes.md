@@ -1,5 +1,11 @@
 # Minify++ — Release Notes
 
+## v1.1.3 (development)
+
+- Development version after the public **v1.1.2** release. The executable
+  identity is advanced to `1.1.3` for further development; the public API
+  format version remains `1`.
+
 ## v1.1.2
 
 - This release is backed by independent conformance checkpoints, each recorded
