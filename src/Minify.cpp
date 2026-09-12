@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
@@ -107,7 +108,7 @@ enum class JsBraceKind { Unknown, Block, Object };
 
 struct JsToken {
     JsTokenKind kind;
-    std::string text;
+    std::string_view text;
     std::size_t begin;
     std::size_t end;
     JsBraceKind brace_kind = JsBraceKind::Unknown;
@@ -118,7 +119,8 @@ struct JsTokenRecorder {
     std::vector<JsToken>& tokens;
     void record(JsTokenKind kind, std::size_t begin, std::size_t end,
                 JsBraceKind brace_kind = JsBraceKind::Unknown) {
-        tokens.push_back({kind, source.substr(begin, end - begin), begin, end, brace_kind});
+        tokens.push_back({kind, std::string_view(source.data() + begin, end - begin),
+                          begin, end, brace_kind});
     }
 };
 
@@ -202,7 +204,7 @@ struct JsConcreteSyntax {
 
 bool js_precedes_block(const std::vector<JsToken>& tokens, std::size_t open) {
     if (open == 0) return true;
-    const std::string& previous = tokens[open - 1].text;
+    const std::string_view previous = tokens[open - 1].text;
     if (previous == ")") return true;
     if (previous == "else" || previous == "try" || previous == "finally" ||
         previous == "do" || previous == "=>") return true;
@@ -237,7 +239,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.identifier_roles.resize(tokens.size(), JsIdentifierRole::Unknown);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
-        const std::string& text = tokens[index].text;
+        const std::string_view text = tokens[index].text;
         JsSyntaxKind kind = text == "(" ? JsSyntaxKind::Parentheses
             : text == "[" ? JsSyntaxKind::Brackets
             : text == "{" ? JsSyntaxKind::Braces : JsSyntaxKind::Token;
@@ -274,8 +276,8 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     if (groups.size() != 1) syntax.balanced = false;
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         if (tokens[index].kind != JsTokenKind::Identifier) continue;
-        const std::string previous = index ? tokens[index - 1].text : std::string();
-        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
+        const std::string_view previous = index ? tokens[index - 1].text : std::string_view();
+        const std::string_view next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string_view();
         const std::size_t node = syntax.node_at_token[index];
         const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
         const bool object_member = parent < syntax.nodes.size() &&
@@ -306,7 +308,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
 enum class JsScopeKind { Script, Module, Function, Block, Class, Catch };
 enum class JsBindingKind { Parameter, Var, Lexical, Function, Class, Catch, Unknown };
 struct JsBinding {
-    std::string name;
+    std::string_view name;
     std::size_t token;
     std::size_t scope;
     JsBindingKind kind;
@@ -336,10 +338,10 @@ bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t 
     if (function == 0) return true;
     std::size_t previous = function - 1;
     if (tokens[previous].text == "async" && previous) --previous;
-    const std::string& context = tokens[previous].text;
+    const std::string_view context = tokens[previous].text;
     if (context == "{" || context == "}" || context == ";" ||
         context == "export" || context == "default") return true;
-    static const std::unordered_set<std::string> expression_prefixes = {
+    static const std::unordered_set<std::string_view> expression_prefixes = {
         "return","throw","case","delete","void","typeof","new","yield","await"
     };
     // Two ordinary identifiers cannot be adjacent in an expression. When a
@@ -376,7 +378,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         graph.scope_at_token[index] = scopes.back();
-        const std::string& text = tokens[index].text;
+        const std::string_view text = tokens[index].text;
         if (text == "function") pending = JsScopeKind::Function;
         else if (text == "class") pending = JsScopeKind::Class;
         else if (text == "catch") pending = JsScopeKind::Catch;
@@ -413,7 +415,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                     unsigned nested = 0;
                     bool binding_position = true;
                     for (std::size_t p = open + 1; p < close; ++p) {
-                        const std::string& parameter = tokens[p].text;
+                        const std::string_view parameter = tokens[p].text;
                         if (binding_position && nested == 0) {
                             if (tokens[p].kind == JsTokenKind::Identifier)
                                 add_binding(scopes.back(), p, JsBindingKind::Parameter);
@@ -457,7 +459,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                 graph.scopes[scopes.back()].last_token = index + 1; scopes.pop_back();
             }
         } else if (index && tokens[index].kind == JsTokenKind::Identifier) {
-            const std::string& previous = tokens[index - 1].text;
+            const std::string_view previous = tokens[index - 1].text;
             JsBindingKind kind = JsBindingKind::Unknown;
             if (previous == "var") kind = JsBindingKind::Var;
             else if (previous == "let" || previous == "const") kind = JsBindingKind::Lexical;
@@ -479,13 +481,13 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     // declaration keyword. Initializer commas inside delimiter groups are
     // skipped; destructuring patterns remain deliberately outside this pass.
     for (std::size_t keyword = 0; keyword < tokens.size(); ++keyword) {
-        const std::string& declaration = tokens[keyword].text;
+        const std::string_view declaration = tokens[keyword].text;
         if (declaration != "var" && declaration != "let" && declaration != "const") continue;
         const JsBindingKind kind = declaration == "var" ? JsBindingKind::Var : JsBindingKind::Lexical;
         unsigned nested = 0;
         bool binding_position = true;
         for (std::size_t p = keyword + 1; p < tokens.size(); ++p) {
-            const std::string& text = tokens[p].text;
+            const std::string_view text = tokens[p].text;
             if (nested == 0 && (text == ";" || text == "in" || text == "of" || text == ")")) break;
             if (binding_position && nested == 0) {
                 if (tokens[p].kind == JsTokenKind::Identifier) {
@@ -510,7 +512,7 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                            JsConcreteSyntax& syntax) {
     graph.references_by_binding.resize(graph.bindings.size());
     std::unordered_set<std::size_t> declarations;
-    std::vector<std::unordered_map<std::string, std::size_t>> bindings_by_name(graph.scopes.size());
+    std::vector<std::unordered_map<std::string_view, std::size_t>> bindings_by_name(graph.scopes.size());
     for (const auto& binding : graph.bindings) {
         declarations.insert(binding.token);
         const std::size_t binding_id = static_cast<std::size_t>(&binding - graph.bindings.data());
@@ -518,7 +520,7 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
         if (binding.token < syntax.identifier_roles.size())
             syntax.identifier_roles[binding.token] = JsIdentifierRole::Binding;
     }
-    static const std::unordered_set<std::string> non_references = {
+    static const std::unordered_set<std::string_view> non_references = {
         "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
     };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
@@ -536,8 +538,8 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             if (found != bindings_by_name[scope].end()) { resolved = found->second; resolved_scope = scope; break; }
             if (!scope) break;
         }
-        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
-        const std::string previous = index ? tokens[index - 1].text : std::string();
+        const std::string_view next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string_view();
+        const std::string_view previous = index ? tokens[index - 1].text : std::string_view();
         JsReferenceAccess access = JsReferenceAccess::Read;
         if (next == "=" && (index + 2 >= tokens.size() || tokens[index + 2].text != ">"))
             access = JsReferenceAccess::Write;
@@ -581,7 +583,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
     std::vector<JsReplacement> replacements;
-    static const std::unordered_set<std::string> reserved = {
+    static const std::unordered_set<std::string_view> reserved = {
         "await","break","case","catch","class","const","continue","debugger",
         "default","delete","do","else","enum","eval","export","extends","false",
         "finally","for","function","if","implements","import","in","instanceof",
@@ -589,7 +591,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         "return","static","super","switch","this","throw","true","try","typeof",
         "var","void","while","with","yield","arguments"
     };
-    std::vector<std::unordered_map<std::string, std::size_t>> binding_counts(graph.scopes.size());
+    std::vector<std::unordered_map<std::string_view, std::size_t>> binding_counts(graph.scopes.size());
     for (const JsBinding& binding : graph.bindings)
         ++binding_counts[binding.scope][binding.name];
     const std::size_t no_unit = graph.scopes.size();
@@ -638,7 +640,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 tokens[i - 1].text == ")") {
                 std::size_t open = i - 1, depth = 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
-                const std::string before = open ? tokens[open - 1].text : std::string();
+                const std::string_view before = open ? tokens[open - 1].text : std::string_view();
                 bool function_parameters = false;
                 for (std::size_t lookback = open; lookback && open - lookback < 4; --lookback)
                     if (tokens[lookback - 1].text == "function") function_parameters = true;
@@ -650,7 +652,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         if (unsafe) continue;
 
         std::vector<std::size_t> eligible;
-        std::unordered_set<std::string> occupied = reserved;
+        std::unordered_set<std::string_view> occupied = reserved;
         for (std::size_t binding : bindings_by_unit[unit]) {
             const JsBinding& candidate = graph.bindings[binding];
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
@@ -725,7 +727,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 const bool shorthand = reference.token < syntax.identifier_roles.size() &&
                     syntax.identifier_roles[reference.token] == JsIdentifierRole::ShorthandProperty;
                 replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
-                    shorthand ? binding.name + ":" + replacement : replacement});
+                    shorthand ? std::string(binding.name) + ":" + replacement : replacement});
             }
             occupied.insert(replacement);
         }
@@ -747,7 +749,7 @@ JsRewriteResult apply_js_replacements(const std::string& source,
     return {std::move(result),true,true};
 }
 
-bool parse_small_decimal(const std::string& text, std::uint64_t& value) {
+bool parse_small_decimal(std::string_view text, std::uint64_t& value) {
     if (text.empty()) return false;
     value = 0;
     for (char c : text) {
@@ -767,7 +769,7 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
         std::uint64_t left = 0, right = 0, result = 0;
         if (!parse_small_decimal(tokens[i + 1].text, left) ||
             !parse_small_decimal(tokens[i + 3].text, right)) continue;
-        const std::string& op = tokens[i + 2].text;
+        const std::string_view op = tokens[i + 2].text;
         if (op == "+") {
             if (left > 9007199254740991ULL - right) continue;
             result = left + right;
@@ -789,7 +791,7 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
 std::vector<JsReplacement> plan_js_constant_conditionals(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
-    static const std::unordered_set<std::string> safe_prefixes = {
+    static const std::unordered_set<std::string_view> safe_prefixes = {
         "(", "[", "{", "=", ",", ":", ";", "return", "throw", "case"
     };
     for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
@@ -800,7 +802,8 @@ std::vector<JsReplacement> plan_js_constant_conditionals(
             facts.values[i + 4] == JsValueKind::Unknown) continue;
         const JsToken& selected = tokens[i].text == "true" ? tokens[i + 2] : tokens[i + 4];
         if (selected.text.size() < tokens[i + 4].end - tokens[i].begin)
-            replacements.push_back({tokens[i].begin, tokens[i + 4].end, selected.text});
+            replacements.push_back({tokens[i].begin, tokens[i + 4].end,
+                                    std::string(selected.text)});
         i += 4;
     }
     return replacements;
@@ -830,12 +833,12 @@ std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToke
     for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
         if (tokens[i].kind != JsTokenKind::Identifier || tokens[i + 1].text != "=" ||
             tokens[i + 2].text != tokens[i].text) continue;
-        const std::string& op = tokens[i + 3].text;
+        const std::string_view op = tokens[i + 3].text;
         if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%") continue;
         const std::size_t left_scope = binding_scope[i], read_scope = binding_scope[i + 2];
         if (left_scope >= graph.scopes.size() || left_scope != read_scope ||
             graph.scopes[left_scope].dynamic_lookup) continue;
-        const std::string compressed = tokens[i].text + op + "=";
+        const std::string compressed = std::string(tokens[i].text) + std::string(op) + "=";
         if (compressed.size() < tokens[i + 3].end - tokens[i].begin)
             replacements.push_back({tokens[i].begin, tokens[i + 3].end, compressed});
         i += 3;
@@ -868,7 +871,8 @@ std::vector<JsReplacement> plan_js_literal_iifes(
         const JsToken& value = tokens[i + 6];
         if (facts.values[i + 6] == JsValueKind::Unknown) continue;
         if (value.text.size() < tokens[i + 11].end - tokens[i].begin)
-            replacements.push_back({tokens[i].begin, tokens[i + 11].end, value.text});
+            replacements.push_back({tokens[i].begin, tokens[i + 11].end,
+                                    std::string(value.text)});
         i += 11;
     }
     return replacements;
@@ -877,9 +881,9 @@ std::vector<JsReplacement> plan_js_literal_iifes(
 std::vector<JsReplacement> plan_js_property_mangling(
     const std::vector<JsToken>& tokens, const std::vector<std::string>& allowlist) {
     std::vector<JsReplacement> replacements;
-    std::unordered_set<std::string> occupied;
+    std::unordered_set<std::string_view> occupied;
     for (const auto& token : tokens) if (token.kind == JsTokenKind::Identifier) occupied.insert(token.text);
-    std::vector<std::pair<std::string, std::string>> names;
+    std::vector<std::pair<std::string_view, std::string>> names;
     std::size_t next_name = 0;
     for (const auto& property : allowlist) {
         if (property.empty() || occupied.count(property) == 0) continue;
@@ -894,8 +898,8 @@ std::vector<JsReplacement> plan_js_property_mangling(
         if (tokens[i].kind != JsTokenKind::Identifier) continue;
         const auto found = std::find_if(names.begin(), names.end(), [&](const auto& pair){ return pair.first == tokens[i].text; });
         if (found == names.end()) continue;
-        const std::string previous = i ? tokens[i - 1].text : std::string();
-        const std::string next = i + 1 < tokens.size() ? tokens[i + 1].text : std::string();
+        const std::string_view previous = i ? tokens[i - 1].text : std::string_view();
+        const std::string_view next = i + 1 < tokens.size() ? tokens[i + 1].text : std::string_view();
         const bool dot_access = previous == ".";
         const bool literal_key = next == ":" && (previous == "{" || previous == ",");
         if (dot_access || literal_key)
@@ -947,10 +951,10 @@ std::string js_short_name(std::size_t index, const std::string& first,
 [[maybe_unused]] std::vector<JsReplacement> plan_js_parameter_mangling(
     const std::vector<JsToken>& tokens) {
     std::vector<JsReplacement> replacements;
-    static const std::unordered_set<std::string> unsafe_scope_words = {
+    static const std::unordered_set<std::string_view> unsafe_scope_words = {
         "eval", "with", "arguments", "catch", "class", "let", "const"
     };
-    static const std::unordered_set<std::string> reserved_words = {
+    static const std::unordered_set<std::string_view> reserved_words = {
         "await", "break", "case", "catch", "class", "const", "continue",
         "debugger", "default", "delete", "do", "else", "enum", "export",
         "extends", "false", "finally", "for", "function", "if", "import",
@@ -972,11 +976,11 @@ std::string js_short_name(std::size_t index, const std::string& first,
             matching_js_token(tokens, close_params + 1, "{", "}");
         if (close_body == tokens.size()) continue;
 
-        std::vector<std::string> params;
+        std::vector<std::string_view> params;
         bool simple_params = true;
         for (std::size_t p = cursor + 1; p < close_params; ++p) {
             if ((p - cursor) % 2 == 1) {
-                const std::string& name = tokens[p].text;
+                const std::string_view name = tokens[p].text;
                 if (name.empty() || reserved_words.count(name) != 0 ||
                     !(ascii_alpha(static_cast<unsigned char>(name[0])) ||
                       name[0] == '_' || name[0] == '$')) {
@@ -992,7 +996,7 @@ std::string js_short_name(std::size_t index, const std::string& first,
         if (!simple_params || params.empty()) continue;
 
         bool unsafe_scope = false;
-        std::unordered_set<std::string> occupied;
+        std::unordered_set<std::string_view> occupied;
         for (const auto& param : params) occupied.insert(param);
         for (std::size_t p = close_params + 2; p < close_body; ++p) {
             occupied.insert(tokens[p].text);
@@ -1006,9 +1010,9 @@ std::string js_short_name(std::size_t index, const std::string& first,
         if (unsafe_scope) continue;
 
         std::size_t next_name = 0;
-        std::unordered_set<std::string> handled;
+        std::unordered_set<std::string_view> handled;
         for (std::size_t parameter = 0; parameter < params.size(); ++parameter) {
-            const std::string& original = params[parameter];
+            const std::string_view original = params[parameter];
             if (!handled.insert(original).second) continue;
             std::string replacement;
             do replacement = js_short_name(next_name++);
@@ -1019,9 +1023,9 @@ std::string js_short_name(std::size_t index, const std::string& first,
             bool shorthand = false;
             for (std::size_t p = close_params + 2; p < close_body; ++p) {
                 if (tokens[p].text != original) continue;
-                const std::string previous = p ? tokens[p - 1].text : std::string();
-                const std::string next = p + 1 < tokens.size()
-                    ? tokens[p + 1].text : std::string();
+                const std::string_view previous = p ? tokens[p - 1].text : std::string_view();
+                const std::string_view next = p + 1 < tokens.size()
+                    ? tokens[p + 1].text : std::string_view();
                 if ((previous == "{" || previous == ",") &&
                     (next == "}" || next == ",")) shorthand = true;
             }
@@ -1035,9 +1039,9 @@ std::string js_short_name(std::size_t index, const std::string& first,
             }
             for (std::size_t p = close_params + 2; p < close_body; ++p) {
                 if (tokens[p].text != original) continue;
-                const std::string previous = p ? tokens[p - 1].text : std::string();
-                const std::string next = p + 1 < tokens.size()
-                    ? tokens[p + 1].text : std::string();
+                const std::string_view previous = p ? tokens[p - 1].text : std::string_view();
+                const std::string_view next = p + 1 < tokens.size()
+                    ? tokens[p + 1].text : std::string_view();
                 if (previous == "." || previous == "#" || previous == "break" ||
                     previous == "continue" || next == ":" ||
                     (next == "(" && (previous == "{" || previous == "," ||
