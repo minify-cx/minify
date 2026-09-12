@@ -856,6 +856,27 @@ std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
     return signature;
 }
 
+std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
+    const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
+    std::vector<std::unordered_set<std::string_view>> barriers(graph.scopes.size());
+    for (std::size_t function = 1; function < graph.scopes.size(); ++function) {
+        if (graph.scopes[function].kind != JsScopeKind::Function) continue;
+        for (const JsBinding& binding : graph.bindings) {
+            if (binding.scope == function) continue;
+            std::size_t scope = binding.scope;
+            while (scope && scope != function) scope = graph.scopes[scope].parent;
+            if (scope == function) barriers[function].insert(binding.name);
+        }
+        for (std::size_t reference : graph.unresolved_references) {
+            const JsReference& occurrence = graph.references[reference];
+            std::size_t scope = occurrence.scope;
+            while (scope && scope != function) scope = graph.scopes[scope].parent;
+            if (scope == function) barriers[function].insert(tokens[occurrence.token].text);
+        }
+    }
+    return barriers;
+}
+
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
@@ -896,6 +917,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         const std::size_t unit = unit_of_scope[graph.references[reference].scope];
         if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
     }
+    const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
     for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
         if (function.kind != JsScopeKind::Function ||
@@ -930,6 +952,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
 
         std::vector<std::size_t> eligible;
         std::unordered_set<std::string_view> occupied = reserved;
+        occupied.insert(nested_name_barriers[unit].begin(), nested_name_barriers[unit].end());
         for (std::size_t binding : bindings_by_unit[unit]) {
             const JsBinding& candidate = graph.bindings[binding];
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
