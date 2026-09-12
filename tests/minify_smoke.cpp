@@ -718,6 +718,12 @@ int main() {
     eq(structured,"function keep($){return{...$}}","structured object spread reference renaming");
     expect(minify::javascript("const total=(longValue)=>{const doubledValue=longValue*2;return doubledValue;};",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const total=($)=>{const _=$*2;return _}","structured block arrow scope safety");
+    expect(minify::javascript("const total=(longValue)=>longValue*2;",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const total=$=>$*2","structured concise arrow parameter renaming");
+    expect(minify::javascript("const total=longValue=>({longValue,externalValue});",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const total=$=>({longValue:$,externalValue})","structured concise arrow shorthand preservation");
+    expect(minify::javascript("const total=longValue=>()=>longValue;",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const total=longValue=>()=>longValue","structured concise arrow capture exclusion");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);

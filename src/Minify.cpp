@@ -735,6 +735,114 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_concise_arrow_renaming(
+    const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string_view> reserved = {
+        "await","break","case","catch","class","const","continue","debugger",
+        "default","delete","do","else","enum","eval","export","extends","false",
+        "finally","for","function","if","implements","import","in","instanceof",
+        "interface","let","new","null","package","private","protected","public",
+        "return","static","super","switch","this","throw","true","try","typeof",
+        "var","void","while","with","yield","arguments"
+    };
+    for (std::size_t arrow = 1; arrow + 2 < tokens.size(); ++arrow) {
+        if (tokens[arrow].text != "=" || tokens[arrow + 1].text != ">") continue;
+        std::size_t parameter = tokens.size();
+        bool parenthesized_parameter = false;
+        if (tokens[arrow - 1].kind == JsTokenKind::Identifier) {
+            parameter = arrow - 1;
+        } else if (arrow >= 3 && tokens[arrow - 1].text == ")" &&
+                   tokens[arrow - 2].kind == JsTokenKind::Identifier &&
+                   tokens[arrow - 3].text == "(") {
+            parameter = arrow - 2;
+            parenthesized_parameter = true;
+        }
+        if (parameter == tokens.size() || tokens[parameter].text.size() <= 2 ||
+            reserved.count(tokens[parameter].text)) continue;
+
+        const std::size_t body_begin = arrow + 2;
+        if (tokens[body_begin].text == "{") continue;
+        std::size_t body_end = tokens.size();
+        unsigned parens = 0, brackets = 0, braces = 0;
+        bool unsafe = false;
+        for (std::size_t i = body_begin; i < tokens.size(); ++i) {
+            const std::string_view text = tokens[i].text;
+            if (text == "(") ++parens;
+            else if (text == ")") { if (!parens) { body_end = i; break; } --parens; }
+            else if (text == "[") ++brackets;
+            else if (text == "]") { if (!brackets) { body_end = i; break; } --brackets; }
+            else if (text == "{") ++braces;
+            else if (text == "}") { if (!braces) { body_end = i; break; } --braces; }
+            else if (!parens && !brackets && !braces && (text == "," || text == ";")) {
+                body_end = i;
+                break;
+            }
+            if (text == "function" || text == "class" || text == "eval" ||
+                text == "with" || text == "arguments" ||
+                (text == "=" && i + 1 < tokens.size() && tokens[i + 1].text == ">"))
+                unsafe = true;
+        }
+        if (unsafe || body_end <= body_begin) continue;
+
+        std::unordered_set<std::string_view> occupied = reserved;
+        for (std::size_t i = body_begin; i < body_end; ++i)
+            if (tokens[i].kind == JsTokenKind::Identifier &&
+                tokens[i].text != tokens[parameter].text)
+                occupied.insert(tokens[i].text);
+        std::string replacement;
+        for (std::size_t next = 0;; ++next) {
+            replacement = js_short_name(next);
+            if (!occupied.count(replacement)) break;
+        }
+
+        std::vector<std::size_t> references;
+        std::size_t shorthand_references = 0;
+        for (std::size_t i = body_begin; i < body_end; ++i) {
+            if (tokens[i].text != tokens[parameter].text) continue;
+            const JsIdentifierRole role = i < syntax.identifier_roles.size()
+                ? syntax.identifier_roles[i] : JsIdentifierRole::Unknown;
+            if (role == JsIdentifierRole::PropertyKey ||
+                role == JsIdentifierRole::MemberProperty ||
+                role == JsIdentifierRole::Label ||
+                role == JsIdentifierRole::ImportExportName ||
+                role == JsIdentifierRole::PrivateName) continue;
+            const bool arrow_object = body_begin + 1 < body_end &&
+                                      tokens[body_begin].text == "(" &&
+                                      tokens[body_begin + 1].text == "{";
+            const bool shorthand = arrow_object &&
+                (tokens[i - 1].text == "{" || tokens[i - 1].text == ",") &&
+                i + 1 < body_end &&
+                (tokens[i + 1].text == "}" || tokens[i + 1].text == ",");
+            if (shorthand) ++shorthand_references;
+            references.push_back(i);
+        }
+        const std::size_t old_size = (references.size() + 1) * tokens[parameter].text.size();
+        const std::size_t new_size = (references.size() + 1) * replacement.size() +
+                                     shorthand_references * (tokens[parameter].text.size() + 1);
+        if (references.empty() || new_size >= old_size) continue;
+        if (parenthesized_parameter) {
+            replacements.push_back({tokens[arrow - 3].begin, tokens[arrow - 3].end, ""});
+            replacements.push_back({tokens[arrow - 1].begin, tokens[arrow - 1].end, ""});
+        }
+        replacements.push_back({tokens[parameter].begin, tokens[parameter].end, replacement});
+        for (std::size_t reference : references) {
+            const bool arrow_object = body_begin + 1 < body_end &&
+                                      tokens[body_begin].text == "(" &&
+                                      tokens[body_begin + 1].text == "{";
+            const bool shorthand = arrow_object &&
+                (tokens[reference - 1].text == "{" || tokens[reference - 1].text == ",") &&
+                reference + 1 < body_end &&
+                (tokens[reference + 1].text == "}" || tokens[reference + 1].text == ",");
+            replacements.push_back({tokens[reference].begin, tokens[reference].end,
+                shorthand ? std::string(tokens[parameter].text) + ":" + replacement
+                          : replacement});
+        }
+        arrow = body_end ? body_end - 1 : arrow;
+    }
+    return replacements;
+}
+
 JsRewriteResult apply_js_replacements(const std::string& source,
                                       std::vector<JsReplacement> replacements){
     std::sort(replacements.begin(),replacements.end(),[](const auto& a,const auto& b){return a.begin<b.begin;});
@@ -2290,6 +2398,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
             auto replacements = pass_enabled(JavaScriptOptimizationPass::BindingRename)
                 ? plan_safe_js_parameter_renaming(tokens, syntax, scopes)
                 : std::vector<JsReplacement>{};
+            if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
+                auto concise = plan_js_concise_arrow_renaming(tokens, syntax);
+                replacements.insert(replacements.end(), concise.begin(), concise.end());
+            }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
                 if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
