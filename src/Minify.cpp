@@ -494,6 +494,8 @@ struct JsScopeGraph {
     std::vector<JsReference> references;
     std::vector<std::size_t> scope_at_token;
     std::vector<std::vector<std::size_t>> references_by_binding;
+    std::vector<std::vector<std::size_t>> scope_children;
+    std::vector<std::size_t> containing_function;
 };
 
 bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
@@ -666,6 +668,14 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             else if ((text == ")" || text == "]" || text == "}") && nested) --nested;
             else if (text == "," && nested == 0) binding_position = true;
         }
+    }
+    graph.scope_children.resize(graph.scopes.size());
+    graph.containing_function.resize(graph.scopes.size(), 0);
+    for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
+        const std::size_t parent = graph.scopes[scope].parent;
+        graph.scope_children[parent].push_back(scope);
+        graph.containing_function[scope] = graph.scopes[scope].kind == JsScopeKind::Function
+            ? scope : graph.containing_function[parent];
     }
     return graph;
 }
