@@ -146,6 +146,8 @@ bool js_rewrite_is_smaller(const std::vector<JsToken>& tokens,
 enum class JsValueKind { Unknown, Undefined, Null, Boolean, Number, BigInt, String };
 enum class JsTruthiness { Unknown, Falsy, Truthy };
 enum class JsInvocationKind { None, Call, OptionalCall, Construct };
+enum class JsConversionKind { None, ToPrimitive, ToBoolean, ToNumber, ToNumeric,
+                              ToString, ToPropertyKey, Compare };
 enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
 enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
 struct JsEffectSummary {
@@ -181,6 +183,7 @@ struct JsSemanticFacts {
     std::vector<JsEffectSummary> effect_summaries;
     std::vector<JsTruthiness> truthiness;
     std::vector<JsInvocationKind> invocations;
+    std::vector<JsConversionKind> conversions;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -191,6 +194,7 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.effect_summaries.resize(tokens.size());
     facts.truthiness.resize(tokens.size(), JsTruthiness::Unknown);
     facts.invocations.resize(tokens.size(), JsInvocationKind::None);
+    facts.conversions.resize(tokens.size(), JsConversionKind::None);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
         if (token.kind == JsTokenKind::Number)
@@ -263,6 +267,17 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
         if (token.text == "await" || token.text == "yield") summary.suspends = true;
         if (token.text == "new") summary.allocates_identity = true;
         if (token.text == "for" && index + 1 < tokens.size()) summary.iterates = true;
+        if (token.text == "!" || token.text == "&&" || token.text == "||" || token.text == "?")
+            facts.conversions[index] = JsConversionKind::ToBoolean;
+        else if (token.text == "+" || token.text == "-")
+            facts.conversions[index] = JsConversionKind::ToPrimitive;
+        else if (token.text == "*" || token.text == "/" || token.text == "%" || token.text == "**")
+            facts.conversions[index] = JsConversionKind::ToNumeric;
+        else if (token.text == "<" || token.text == ">" || token.text == "<=" ||
+                 token.text == ">=" || token.text == "==" || token.text == "!=")
+            facts.conversions[index] = JsConversionKind::Compare;
+        else if (token.text == "[" || token.text == ".")
+            facts.conversions[index] = JsConversionKind::ToPropertyKey;
     }
     return facts;
 }
@@ -1060,6 +1075,8 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
             signature += "V" + std::to_string(static_cast<unsigned>(facts.values[token])) + ";";
         if (facts.truthiness[token] != JsTruthiness::Unknown)
             signature += "Q" + std::to_string(static_cast<unsigned>(facts.truthiness[token])) + ";";
+        if (facts.conversions[token] != JsConversionKind::None)
+            signature += "Z" + std::to_string(static_cast<unsigned>(facts.conversions[token])) + ";";
     }
     return signature;
 }
