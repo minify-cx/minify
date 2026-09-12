@@ -333,6 +333,29 @@ std::vector<JsReplacement> plan_js_unreachable_debuggers(const std::vector<JsTok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToken>& tokens,
+                                                         const JsScopeGraph& graph) {
+    std::vector<JsReplacement> replacements;
+    auto binding_scope = [&](std::size_t token) {
+        for (const auto& ref : graph.references) if (ref.token == token) return ref.binding_scope;
+        return tokens.size();
+    };
+    for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
+        if (tokens[i].kind != JsTokenKind::Identifier || tokens[i + 1].text != "=" ||
+            tokens[i + 2].text != tokens[i].text) continue;
+        const std::string& op = tokens[i + 3].text;
+        if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%") continue;
+        const std::size_t left_scope = binding_scope(i), read_scope = binding_scope(i + 2);
+        if (left_scope >= graph.scopes.size() || left_scope != read_scope ||
+            graph.scopes[left_scope].dynamic_lookup) continue;
+        const std::string compressed = tokens[i].text + op + "=";
+        if (compressed.size() < tokens[i + 3].end - tokens[i].begin)
+            replacements.push_back({tokens[i].begin, tokens[i + 3].end, compressed});
+        i += 3;
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1676,7 +1699,28 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
-        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(aggressive_rewrite){auto folded=plan_js_constant_folding(tokens);replacements.insert(replacements.end(),folded.begin(),folded.end());auto branches=plan_js_constant_conditionals(tokens);replacements.insert(replacements.end(),branches.begin(),branches.end());auto dead=plan_js_unreachable_debuggers(tokens);replacements.insert(replacements.end(),dead.begin(),dead.end());}if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false,false);}}
+        if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
+            auto replacements = plan_safe_js_parameter_renaming(tokens, scopes);
+            if (!replacements.empty()) {
+                const std::string rewritten = apply_js_replacements(input, std::move(replacements));
+                return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
+                                         aggressive_rewrite, aggressive_rewrite, aggressive_rewrite);
+            }
+            if (aggressive_rewrite) {
+                auto append = [&](std::vector<JsReplacement> more) {
+                    replacements.insert(replacements.end(), more.begin(), more.end());
+                };
+                append(plan_js_constant_folding(tokens));
+                append(plan_js_constant_conditionals(tokens));
+                append(plan_js_unreachable_debuggers(tokens));
+                append(plan_js_compound_assignments(tokens, scopes));
+                if (!replacements.empty()) {
+                    const std::string rewritten = apply_js_replacements(input, std::move(replacements));
+                    return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
+                                             false, false, false);
+                }
+            }
+        }
     }
     error.clear();
     return true;

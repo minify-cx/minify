@@ -722,6 +722,8 @@ int main() {
     eq(aggressive,"const n=!0?sideEffect():456","aggressive effectful conditional exclusion");
     expect(minify::javascript("function f(){return 7;debugger;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
+    expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
 
 
     std::cout << "Standalone minifier smoke test passed\n";
