@@ -805,6 +805,8 @@ int main() {
     }
     expect(minify::javascript_cfg_signature("a();return b",original_signature,err),err);
     expect(original_signature.find("E0;")!=std::string::npos&&original_signature.find("N")!=std::string::npos&&original_signature.find("X")!=std::string::npos,"CFG entry and exits");
+    expect(minify::javascript_cfg_signature("a&&b;c||d;e??f;g?h:i",original_signature,err),err);
+    expect(original_signature.find("1>4;")!=std::string::npos&&original_signature.find("11>14;")!=std::string::npos&&original_signature.find("16>19;")!=std::string::npos,"CFG short-circuit and conditional edges");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

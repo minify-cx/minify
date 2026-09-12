@@ -375,6 +375,30 @@ struct JsControlFlowGraph {
             if (after_condition < tokens.size()) flow.successors[token].push_back(after_condition);
         }
     }
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        const std::string_view op = tokens[token].text;
+        const bool paired = token + 1 < tokens.size() && tokens[token + 1].text == op &&
+            (op == "&" || op == "|" || op == "?");
+        const bool conditional = op == "?" && !paired;
+        if (!paired && !conditional) continue;
+        unsigned nested = 0;
+        std::size_t colon = tokens.size(), boundary = tokens.size();
+        for (std::size_t cursor = token + 1; cursor < tokens.size(); ++cursor) {
+            const std::string_view text = tokens[cursor].text;
+            if (text == "(" || text == "[" || text == "{") ++nested;
+            else if (text == ")" || text == "]" || text == "}") {
+                if (!nested) { boundary = cursor; break; }
+                --nested;
+            } else if (!nested && conditional && text == ":" && colon == tokens.size())
+                colon = cursor;
+            else if (!nested && (text == ";" || text == ",")) {
+                boundary = cursor; break;
+            }
+        }
+        if (conditional && colon < tokens.size()) flow.successors[token].push_back(colon + 1);
+        else if (boundary < tokens.size()) flow.successors[token].push_back(boundary);
+        else flow.successors[token].push_back(flow.normal_exit);
+    }
     return flow;
 }
 
