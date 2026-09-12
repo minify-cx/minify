@@ -158,6 +158,12 @@ int main() {
     expect(minify::javascript("const a=0xeac7,b=0b111111,c=0o17,d=0xffffffffffffffffn;", out, err), err);
     eq(out, "const a=60103,b=63,c=15,d=0xffffffffffffffffn",
        "JavaScript radix integer shortening");
+    expect(minify::javascript("const a=\"don't stop\",b='say \\\'hi\\\'';", out, err), err);
+    eq(out, "const a=\"don't stop\",b=\"say 'hi'\"",
+       "JavaScript string quote selection");
+    expect(minify::javascript("const a='\\n\\x41\\u0042\\\\';", out, err), err);
+    eq(out, "const a='\\n\\x41\\u0042\\\\'",
+       "JavaScript non-quote escapes preserved");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");

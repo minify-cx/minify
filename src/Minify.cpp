@@ -38,6 +38,39 @@ std::string shorten_js_integer(const std::string& token) {
     return decimal.size() < token.size() ? decimal : token;
 }
 
+std::string quote_js_string(const std::string& token, char target) {
+    const char source = token.front();
+    std::string result;
+    result.reserve(token.size() + 2);
+    result.push_back(target);
+    for (std::size_t i = 1; i + 1 < token.size(); ++i) {
+        const char c = token[i];
+        if (c == '\\' && i + 2 < token.size()) {
+            const char escaped = token[++i];
+            if (escaped == '\'' || escaped == '"') {
+                if (escaped == target) result.push_back('\\');
+                result.push_back(escaped);
+            } else {
+                result.push_back('\\');
+                result.push_back(escaped);
+            }
+        } else {
+            if (c == target && target != source) result.push_back('\\');
+            result.push_back(c);
+        }
+    }
+    result.push_back(target);
+    return result;
+}
+
+std::string shorten_js_string(const std::string& token) {
+    const std::string single = quote_js_string(token, '\'');
+    const std::string dual = quote_js_string(token, '"');
+    if (single.size() < dual.size()) return single;
+    if (dual.size() < single.size()) return dual;
+    return token.front() == '\'' ? single : dual;
+}
+
 bool js_line_terminator_in(const std::string& input, std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
         if (input[i] == '\n' || input[i] == '\r') return true;
@@ -792,14 +825,16 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     auto copy_quoted = [&](std::size_t& i, char quote) {
         emit_pending(quote);
-        output.push_back(input[i++]);
+        const std::size_t begin = i++;
         bool escaped = false;
         while (i < input.size()) {
             const char q = input[i++];
-            output.push_back(q);
             if (escaped) escaped = false;
             else if (q == '\\') escaped = true;
-            else if (q == quote) return true;
+            else if (q == quote) {
+                output += shorten_js_string(input.substr(begin, i - begin));
+                return true;
+            }
         }
         error = std::string("unterminated JavaScript ") +
                 (quote == '`' ? "template literal" : "string literal");
