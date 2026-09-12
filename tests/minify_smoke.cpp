@@ -726,6 +726,8 @@ int main() {
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
     expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){var first,second;return 1}","aggressive adjacent var declaration join");
+    expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const answer=42","aggressive literal IIFE compression");
 
 
     std::cout << "Standalone minifier smoke test passed\n";

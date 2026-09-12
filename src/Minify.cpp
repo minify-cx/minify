@@ -368,6 +368,25 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_literal_iifes(const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 11 < tokens.size(); ++i) {
+        if (tokens[i].text != "(" || tokens[i + 1].text != "function" ||
+            tokens[i + 2].text != "(" || tokens[i + 3].text != ")" ||
+            tokens[i + 4].text != "{" || tokens[i + 5].text != "return" ||
+            tokens[i + 7].text != ";" || tokens[i + 8].text != "}" ||
+            tokens[i + 9].text != ")" || tokens[i + 10].text != "(" ||
+            tokens[i + 11].text != ")") continue;
+        const JsToken& value = tokens[i + 6];
+        if (value.kind != JsTokenKind::Number && value.kind != JsTokenKind::String &&
+            value.text != "true" && value.text != "false" && value.text != "null") continue;
+        if (value.text.size() < tokens[i + 11].end - tokens[i].begin)
+            replacements.push_back({tokens[i].begin, tokens[i + 11].end, value.text});
+        i += 11;
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1727,6 +1746,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 append(plan_js_unreachable_debuggers(tokens));
                 append(plan_js_compound_assignments(tokens, scopes));
                 append(plan_js_var_declaration_joins(tokens));
+                append(plan_js_literal_iifes(tokens));
                 if (!replacements.empty()) {
                     const std::string rewritten = apply_js_replacements(input, std::move(replacements));
                     return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
