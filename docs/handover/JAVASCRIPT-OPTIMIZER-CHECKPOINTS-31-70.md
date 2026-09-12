@@ -4,6 +4,13 @@ This is the execution plan following checkpoints 1–30. “Unrestricted DCE”
 means applicability throughout completely analysed code, never removal without
 a semantic proof. Execute in order and apply the retention gate to every commit.
 
+Implementation evidence for the bounded checkpoint 31–50 foundation is in
+`docs/evidence/javascript-optimizer-checkpoints-31-50.md`. Do not infer full
+roadmap completion from the commit labels: complete AST/IR printing,
+fixed-point path analysis, interprocedural summaries and exceptional basic-block
+CFG construction remain open and must be completed before checkpoints 31–50
+can be promoted from foundation status.
+
 ## Semantic IR foundation
 
 31. Add stable expression/statement IDs, source spans and binding/reference
