@@ -552,6 +552,7 @@ struct JsBinding {
     std::vector<std::size_t> declaration_tokens;
 };
 enum class JsReferenceAccess { Read, Write, ReadWrite };
+enum class JsEscapeKind { Local, Captured, Returned, Passed, Stored, Exported, Unknown };
 struct JsReference {
     std::size_t token;
     std::size_t scope;
@@ -578,6 +579,7 @@ struct JsScopeGraph {
     std::vector<std::size_t> reference_at_token;
     std::vector<std::size_t> unresolved_references;
     std::vector<std::vector<std::size_t>> captures_by_function;
+    std::vector<JsEscapeKind> binding_escape;
 };
 
 bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
@@ -870,6 +872,27 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             }
         } else
             graph.unresolved_references.push_back(graph.references.size() - 1);
+    }
+    graph.binding_escape.resize(graph.bindings.size(), JsEscapeKind::Local);
+    for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
+        JsEscapeKind escape = JsEscapeKind::Local;
+        for (std::size_t reference_id : graph.references_by_binding[binding]) {
+            const JsReference& reference = graph.references[reference_id];
+            if (reference.captured) { escape = JsEscapeKind::Captured; break; }
+            const std::size_t token = reference.token;
+            if (token && tokens[token - 1].text == "return") escape = JsEscapeKind::Returned;
+            else if (token && tokens[token - 1].text == "export") escape = JsEscapeKind::Exported;
+            else if (token && tokens[token - 1].text == "=") escape = JsEscapeKind::Stored;
+            else if (token < syntax.node_at_token.size()) {
+                const std::size_t node = syntax.node_at_token[token];
+                const std::size_t parent = node < syntax.nodes.size()
+                    ? syntax.nodes[node].parent : syntax.nodes.size();
+                if (parent < syntax.nodes.size() &&
+                    syntax.nodes[parent].role == JsGroupRole::Arguments)
+                    escape = JsEscapeKind::Passed;
+            }
+        }
+        graph.binding_escape[binding] = escape;
     }
 }
 
