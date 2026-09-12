@@ -4,6 +4,10 @@ This is a living risk assessment. Review it at every substantial checkpoint;
 new corpus failures, syntax evolution, sanitizer findings, performance evidence,
 Nift integration, and user needs may reorder, expand, narrow, or remove work.
 
+The staged JavaScript/JSX minification plan is maintained in
+`JAVASCRIPT-OPTIMIZATION-ROADMAP.md`. It separates the default conservative,
+structured and explicitly aggressive contracts into conformance-gated steps.
+
 ## Architecture-reconciliation findings
 
 The August 2026 reconciliation verified a stateless whole-buffer implementation

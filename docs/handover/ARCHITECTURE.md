@@ -121,12 +121,15 @@ case-insensitive raw closing tag with a boundary check and copies the body
 verbatim. This is a deliberate conservative design and avoids mixed-language
 scanner risk at the cost of missed compression.
 
-The JavaScript scanner is a forward lexical/context scanner. It preserves every
-significant newline conservatively for ASI and future syntax, removes comments,
-preserves /*! comments, tracks control parentheses and block-versus-expression
-braces, and maintains whether a regex may begin. Regex copying handles escapes,
-character classes, and alphabetic flags. Its separator logic protects word
-joining, plus-plus, minus-minus, slash-slash, and numeric-literal/member access.
+The JavaScript scanner is a forward lexical/context scanner. It removes a line
+terminator only after an explicit semicolon or opening brace and preserves other
+significant newlines for ASI and future syntax. It removes comments, preserves
+/*! comments, tracks control parentheses and block-versus-expression braces, and
+maintains whether a regex may begin. Conservative JavaScript-only candidates
+include guarded semicolon, boolean, radix-integer and string-quote shortening.
+Regex copying handles escapes, character classes, and alphabetic flags. Separator
+logic protects word joining, plus-plus, minus-minus, slash-slash, and numeric
+literal/member access.
 
 JavaScript backtick literals are currently copied as opaque quoted regions. This
 preserves nested-template bytes safely but does not minify expressions within a
@@ -136,7 +139,10 @@ JSX has a separate scanner layered around the JavaScript function. It finds JSX
 roots conservatively, preserves markup and JSX text, recursively minifies brace
 expressions, handles fragments and nested elements, skips regexes before looking
 for markup, and distinguishes several TSX generic-arrow/type contexts from JSX.
-This is substantially more capable than the inherited uncertainty about JSX.
+The conservative JSX contract additionally preserves every non-trivia TSX token:
+it shares comment and whitespace removal, but not JavaScript semicolon or literal
+rewriting. This is substantially more capable than the inherited uncertainty
+about JSX.
 
 JSON first parses through the private Json Document implementation, rejects invalid
 JSON, then removes whitespace outside quoted strings. XML/SVG share a conservative

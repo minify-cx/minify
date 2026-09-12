@@ -1,53 +1,49 @@
-# JavaScript optimization checkpoint 10
+# JavaScript optimization checkpoint investigation and repair
 
-Final controlled-checkpoint validation on Linux 6.18.35 x86-64 with GCC
-13.3.0 and Node available.
+The original checkpoint-10 conclusion was invalid because it relied on retained
+product suites without rerunning the repository's on-demand Test262 corpus. A
+fresh complete run at Minify++ commit `f414d58` found:
 
-## Retained gates
+| Classification | Count |
+| --- | ---: |
+| Eligible Test262 programs | 48,011 |
+| Runtime-applicable originals | 39,744 |
+| Passed after transformation | 39,601 |
+| Semantic failures | 137 |
+| Transformed-only timeouts | 6 |
+| Runtime-inapplicable | 8,267 |
 
-| Gate | Result |
-| --- | --- |
-| Standalone smoke | pass |
-| Node semantic differential | pass |
-| Generated JavaScript semantic corpus | pass, 15,459 programs |
-| Scope adversarial semantic gate | pass, 12 focused programs |
-| Deterministic fuzz smoke | pass, 70,000 cases |
-| Non-JavaScript format idempotence | pass, 115 documents |
-| Cross-format adversarial | pass |
-| CLI smoke | pass |
-| ASan + UBSan smoke, fuzz, and CLI | pass (`ASAN_OPTIONS=detect_leaks=0`) |
-| Independent conformance harness unit tests | pass, 6 tests |
-| Independent conformance smoke | pass |
+Isolation at the first five lexical checkpoints still produced 29 semantic
+failures. Isolation at the newline-only checkpoint produced three. Confirmed
+families included closing-brace ASI, meaningful empty `else` statements, boolean
+member/call precedence, `new` operands, and incomplete parameter reference
+rewriting (including template expressions).
 
-LeakSanitizer itself cannot run in the managed ptraced environment because it
-cannot inspect `/proc`; address and undefined-behavior instrumentation completed
-with leak detection disabled. TypeScript and PostCSS are not installed, so the
-existing JSX-generated and CSS-semantic scripts reported their documented skips.
+The repaired conservative baseline therefore:
 
-The supplied conformance archive contains the smoke fixture and retained result
-summaries, but not `.state/upstreams/test262` or `work/test262-js.jsonl`.
-Consequently, the pinned 48,011-case Test262 corpus could not be rerun from this
-archive. The repository's retained complete checkpoint remains 39,741 applicable
-original programs passed after transformation with zero transformed failures.
+- disables incomplete scope rewriting in the default path;
+- preserves line terminators after every closing brace;
+- preserves semicolons that form empty `else` statements;
+- refuses boolean shortening where a following operation binds more tightly or
+  the boolean is a `new` operand;
+- retains the conformance-clean radix integer and string quote candidates;
+- restricts JSX to trivia-only changes so every non-trivia TSX token is stable.
 
-## Final benchmark
+## Repaired evidence
 
-Command:
+At Test262 revision `72faf8ec1445c55149615e8b35187830783aba1a`, the repaired
+default processed all 48,011 eligible programs. All 39,744 programs accepted by
+the selected Node runtime passed after transformation, with zero minifier errors,
+semantic failures or transformed-only timeouts.
 
-```sh
-make benchmark BENCH_REPETITIONS=10000 BENCH_ITERATIONS=15
-```
+At TypeScript revision `1e4744d68260a7cb91b62b12edc3f6a2187faaf1`, extraction
+selected 221 JSX/TSX programs and excluded 56 source-parser-rejected inputs. All
+221 eligible programs passed exact non-trivia token and JSX-text comparison.
 
-| Workload | Input bytes | Output bytes | Median ms | MiB/s |
-| --- | ---: | ---: | ---: | ---: |
-| JavaScript | 850,000 | 729,999 | 14.017 | 57.8 |
-| JavaScript scope | 690,000 | 330,000 | 19.677 | 33.4 |
-| JSX | 1,160,000 | 1,069,999 | 20.986 | 52.7 |
+The retained local gates also pass: standalone smoke, Node differential,
+15,459 generated JavaScript programs, the 12-case scope adversarial gate,
+70,000 deterministic fuzz cases, 115 non-JavaScript documents, cross-format
+adversarial tests and CLI smoke. Sanitizer evidence is rerun at final handoff.
 
-The scope workload repeats a simple two-parameter function to exercise the
-conservative renamer. It is a targeted regression workload, not a claim about
-the reduction expected for typical application bundles. Shared-host timings
-are retained as regression signals rather than cross-machine performance claims.
-
-Parameter replacements are assembled in a single linear output pass. Files
-without the `function` token skip token collection entirely.
+The complete corpora are acquired with each conformance repository's `make sync`
+and `make extract` targets and intentionally remain outside version control.
