@@ -379,6 +379,21 @@ bool word_char(char c) {
     return u >= 0x80 || std::isalnum(u) || c == '_' || c == '$' || c == '-' || c == '\\';
 }
 
+bool js_needs_separator(char left, char right, bool after_regex,
+                        bool preserve_jsx_boundary) {
+    const unsigned char next = static_cast<unsigned char>(right);
+    return (word_char(left) && word_char(right)) ||
+           (left == '+' && right == '+') ||
+           (left == '-' && right == '-') ||
+           (left == '/' && (right == '/' || right == '*')) ||
+           (after_regex && (std::isalpha(next) || right == '_' || right == '$' ||
+                            next >= 0x80)) ||
+           (left == '*' && right == '/') ||
+           (preserve_jsx_boundary && left == '<' &&
+            (std::isalpha(next) || right == '>' || right == '/')) ||
+           (std::isdigit(static_cast<unsigned char>(left)) && right == '.');
+}
+
 std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -983,18 +998,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             if (!delimited_boundary && !output.empty() && output.back() != '\n')
                 output.push_back('\n');
         } else if (pending_space && !output.empty() &&
-                   ((word_char(output.back()) && word_char(next)) ||
-                    (output.back() == '+' && next == '+') ||
-                    (output.back() == '-' && next == '-') ||
-                    (output.back() == '/' && next == '/') ||
-                    (output.back() == '/' && next == '*') ||
-                    (regex_boundary &&
-                     (std::isalpha(static_cast<unsigned char>(next)) || next == '_' ||
-                      next == '$' || static_cast<unsigned char>(next) >= 0x80)) ||
-                    (output.back() == '*' && next == '/') ||
-                    (preserve_jsx_boundaries && output.back() == '<' &&
-                     (std::isalpha(static_cast<unsigned char>(next)) || next == '>' || next == '/')) ||
-                    (std::isdigit(static_cast<unsigned char>(output.back())) && next == '.'))) {
+                   js_needs_separator(output.back(), next, regex_boundary,
+                                      preserve_jsx_boundaries)) {
             output.push_back(' ');
         }
         pending_space = pending_newline = false;

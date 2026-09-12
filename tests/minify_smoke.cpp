@@ -507,6 +507,14 @@ int main() {
     eq(out, "a{", "CSS short EOF comment recovery");
     expect(!minify::javascript("/*", out, err), "unterminated JS comment accepted");
 
+    // The separator oracle must prevent adjacent source tokens from being
+    // reinterpreted as identifiers, comments, update operators or members.
+    expect(minify::javascript("a + +b; c - -d; 1 .toString(); /x/g instanceof RegExp;", out, err), err);
+    expect(out.find("a+ +b") != std::string::npos, "plus tokens merged");
+    expect(out.find("c - -d") != std::string::npos, "minus tokens merged");
+    expect(out.find("1 .toString") != std::string::npos, "numeric member boundary merged");
+    expect(out.find("/x/g instanceof") != std::string::npos, "regex flag boundary merged");
+
     // Idempotence: a second minification pass must be byte-identical.
     auto idem = [&](minify::Format fmt, const std::string& src, const char* label) {
         std::string a,b,e;
