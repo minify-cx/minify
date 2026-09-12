@@ -293,8 +293,8 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
             result = left * right;
         } else continue;
         const std::string folded = std::to_string(result);
-        if (folded.size() < tokens[i + 4].end - tokens[i].begin)
-            replacements.push_back({tokens[i].begin, tokens[i + 4].end, folded});
+        if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)
+            replacements.push_back({tokens[i + 1].begin, tokens[i + 3].end, folded});
         i += 4;
     }
     return replacements;
@@ -302,9 +302,13 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
 
 std::vector<JsReplacement> plan_js_constant_conditionals(const std::vector<JsToken>& tokens) {
     std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string> safe_prefixes = {
+        "(", "[", "{", "=", ",", ":", ";", "return", "throw", "case"
+    };
     for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
         if ((tokens[i].text != "true" && tokens[i].text != "false") ||
             tokens[i + 1].text != "?" || tokens[i + 3].text != ":") continue;
+        if (i && safe_prefixes.count(tokens[i - 1].text) == 0) continue;
         const auto safe_value = [](const JsToken& token) {
             return token.kind == JsTokenKind::Number || token.kind == JsTokenKind::String ||
                    token.text == "true" || token.text == "false" || token.text == "null";
@@ -336,16 +340,14 @@ std::vector<JsReplacement> plan_js_unreachable_debuggers(const std::vector<JsTok
 std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToken>& tokens,
                                                          const JsScopeGraph& graph) {
     std::vector<JsReplacement> replacements;
-    auto binding_scope = [&](std::size_t token) {
-        for (const auto& ref : graph.references) if (ref.token == token) return ref.binding_scope;
-        return tokens.size();
-    };
+    std::vector<std::size_t> binding_scope(tokens.size(), tokens.size());
+    for (const auto& ref : graph.references) binding_scope[ref.token] = ref.binding_scope;
     for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
         if (tokens[i].kind != JsTokenKind::Identifier || tokens[i + 1].text != "=" ||
             tokens[i + 2].text != tokens[i].text) continue;
         const std::string& op = tokens[i + 3].text;
         if (op != "+" && op != "-" && op != "*" && op != "/" && op != "%") continue;
-        const std::size_t left_scope = binding_scope(i), read_scope = binding_scope(i + 2);
+        const std::size_t left_scope = binding_scope[i], read_scope = binding_scope[i + 2];
         if (left_scope >= graph.scopes.size() || left_scope != read_scope ||
             graph.scopes[left_scope].dynamic_lookup) continue;
         const std::string compressed = tokens[i].text + op + "=";
@@ -2242,7 +2244,8 @@ static bool find_jsx_expression_end(const std::string& input, std::size_t start,
 static bool minify_jsx(const std::string& input, std::string& output,
                        std::string& error, bool collect_tokens,
                        bool structured_expressions = false,
-                       bool inside_expression = false) {
+                       bool inside_expression = false,
+                       bool aggressive_expressions = false) {
     output.clear();
     output.reserve(input.size());
 
@@ -2252,7 +2255,8 @@ static bool minify_jsx(const std::string& input, std::string& output,
         if (end <= js_start) return true;
         std::string part, e;
         if (!minify_javascript(input.substr(js_start, end - js_start), part, e,
-                               true, collect_tokens, structured_expressions && inside_expression)) {
+                               true, collect_tokens, structured_expressions && inside_expression,
+                               aggressive_expressions && inside_expression)) {
             error = e;
             return false;
         }
@@ -2441,7 +2445,8 @@ static bool minify_jsx(const std::string& input, std::string& output,
                             }
                             std::string expr, e;
                             if (!minify_jsx(input.substr(k + 1, qpos - k - 2), expr, e,
-                                            collect_tokens, structured_expressions, true)) {
+                                            collect_tokens, structured_expressions, true,
+                                            aggressive_expressions)) {
                                 error = e; output.clear(); return false;
                             }
                             output.push_back('{'); output += expr; output.push_back('}');
@@ -2472,7 +2477,8 @@ static bool minify_jsx(const std::string& input, std::string& output,
                 }
                 std::string expr, e;
                 if (!minify_jsx(input.substr(p + 1, j - p - 2), expr, e,
-                                collect_tokens, structured_expressions, true)) {
+                                collect_tokens, structured_expressions, true,
+                                aggressive_expressions)) {
                     error = e; output.clear(); return false;
                 }
                 output.push_back('{'); output += expr; output.push_back('}');
@@ -2530,14 +2536,16 @@ static bool minify_jsx(const std::string& input, std::string& output,
 }
 
 bool jsx(const std::string& input, std::string& output, std::string& error) {
-    return minify_jsx(input, output, error, false, false, false);
+    return minify_jsx(input, output, error, false, false, false, false);
 }
 
 bool jsx(const std::string& input, std::string& output, std::string& error,
          const Options& options) {
     return minify_jsx(input, output, error,
                       options.optimization != OptimizationLevel::Conservative,
-                      options.structured_jsx_expressions, false);
+                      options.structured_jsx_expressions, false,
+                      options.optimization == OptimizationLevel::Aggressive &&
+                          options.structured_jsx_expressions);
 }
 
 bool format_for_extension(const std::string& extension, Format& format) {

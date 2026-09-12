@@ -120,6 +120,29 @@ The sequence is intentionally incremental. A later checkpoint may be split, but
 scope, parser and conformance boundaries must not be combined merely to reduce
 the apparent number of steps.
 
+## Aggressive checkpoint execution — 2026-09-12
+
+Checkpoints 21–30 activate a separately named, CLI/API opt-in aggressive layer.
+Its implemented transforms are intentionally smaller than the roadmap's broad
+categories: exact non-negative safe-integer arithmetic in parenthesized binary
+expressions; literal-only conditional selection; unreachable `debugger`
+statements immediately following a `return`; compound assignments for two
+references resolved to the same non-dynamic binding; adjacent uninitialized
+`var` joins; and literal-returning, argument-free anonymous IIFEs. Every planner
+falls back without modifying source when its local proof is incomplete.
+
+Property mangling requires an explicit allowlist for every eligible property.
+There is no inferred-private mode. Aggressive JSX is likewise active only inside
+fully parsed expression regions and only when the existing explicit structured
+JSX-expression option is selected.
+
+The release gate includes a permanent ten-case source/Minify++ execution corpus.
+When installed, Terser and esbuild are also executed over that corpus as
+independent comparison points; their agreement is recorded as evidence and is
+never treated as the semantic oracle. Complete Test262, JSX, sanitizer, fuzz,
+output-size, throughput and repository-identity results are recorded at the
+final commit before advancing this section beyond Linux evidence.
+
 ## Conservative checkpoint execution — 2026-09-12
 
 The ten controlled commits after the repaired baseline established the public

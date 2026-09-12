@@ -713,13 +713,15 @@ int main() {
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
     expect(minify::javascript("const n=(200+30);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"const n=230","aggressive exact integer constant folding");
+    eq(aggressive,"const n=(230)","aggressive exact integer constant folding");
     expect(minify::javascript("const n=(9007199254740991+1);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=(9007199254740991+1)","aggressive unsafe integer fold exclusion");
     expect(minify::javascript("const n=true?123:456;const s=false?'a':'b';",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=123;const s='b'","aggressive constant conditional simplification");
     expect(minify::javascript("const n=true?sideEffect():456;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=!0?sideEffect():456","aggressive effectful conditional exclusion");
+    expect(minify::javascript("const n=false??true?0:42;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const n=!1?" "?!0?0:42","aggressive nested conditional precedence exclusion");
     expect(minify::javascript("function f(){return 7;debugger;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
@@ -731,6 +733,9 @@ int main() {
     minify::Options property_options;property_options.optimization=minify::OptimizationLevel::Aggressive;property_options.property_mangle_allowlist={"internalValue"};
     expect(minify::javascript("const box={internalValue:3};box.internalValue;box.publicValue;",aggressive,err,property_options),err);
     eq(aggressive,"const box={$:3};box.$;box.publicValue","explicit property allowlist mangling");
+    minify::Options aggressive_jsx(minify::OptimizationLevel::Aggressive);aggressive_jsx.structured_jsx_expressions=true;
+    expect(minify::jsx("const view=<Card value={(200+30)} />;",aggressive,err,aggressive_jsx),err);
+    eq(aggressive,"const view=<Card value={(230)} />;","explicit aggressive JSX expression folding");
 
 
     std::cout << "Standalone minifier smoke test passed\n";

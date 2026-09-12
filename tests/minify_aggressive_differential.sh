@@ -38,4 +38,5 @@ run_case declarations 'function f(){var first;var second;first=2;second=3;return
 run_case iife 'console.log((function(){return 42})());'
 run_case negative_zero 'console.log(Object.is((0-0),-0),Object.is((-0),-0));'
 run_case coercion 'const x={valueOf(){return 2}};console.log(x+x);'
-echo "Aggressive JavaScript differential corpus passed (10 cases; available competitors included)"
+run_case call_argument 'console.log(String(1+1),Array(8*8).length);'
+echo "Aggressive JavaScript differential corpus passed (11 cases; available competitors included)"

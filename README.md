@@ -98,6 +98,12 @@ eligible. Minify++ does not infer that a property is private or safe at an API
 boundary; bracket-string, reflective and dynamically constructed access must be
 accounted for by the caller before opting a name in.
 
+The current aggressive implementation additionally covers locally proven exact
+integer folding, literal conditional selection, narrowly unreachable debugger
+removal, resolved compound assignment shortening, adjacent uninitialized `var`
+joining and literal IIFE elimination. This is an experimental Linux checkpoint,
+not a claim of broad optimizer parity with Terser, esbuild or Closure Compiler.
+
 ## Current adversarial gates
 
 - Independent complete external checkpoints: CSS 31,155/31,155, HTML
