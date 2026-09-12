@@ -318,6 +318,21 @@ std::vector<JsReplacement> plan_js_constant_conditionals(const std::vector<JsTok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_unreachable_debuggers(const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
+        if (tokens[i].text != "return") continue;
+        std::size_t terminator = i + 1;
+        while (terminator < tokens.size() && tokens[terminator].text != ";" &&
+               tokens[terminator].text != "}") ++terminator;
+        if (terminator + 2 >= tokens.size() || tokens[terminator].text != ";" ||
+            tokens[terminator + 1].text != "debugger" || tokens[terminator + 2].text != ";") continue;
+        replacements.push_back({tokens[terminator + 1].begin, tokens[terminator + 2].end, ""});
+        i = terminator + 2;
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1661,7 +1676,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
-        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(aggressive_rewrite){auto folded=plan_js_constant_folding(tokens);replacements.insert(replacements.end(),folded.begin(),folded.end());auto branches=plan_js_constant_conditionals(tokens);replacements.insert(replacements.end(),branches.begin(),branches.end());}if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false,false);}}
+        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(aggressive_rewrite){auto folded=plan_js_constant_folding(tokens);replacements.insert(replacements.end(),folded.begin(),folded.end());auto branches=plan_js_constant_conditionals(tokens);replacements.insert(replacements.end(),branches.begin(),branches.end());auto dead=plan_js_unreachable_debuggers(tokens);replacements.insert(replacements.end(),dead.begin(),dead.end());}if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false,false);}}
     }
     error.clear();
     return true;
