@@ -241,16 +241,20 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
         if (tokens[index].kind != JsTokenKind::Identifier) continue;
         const std::string previous = index ? tokens[index - 1].text : std::string();
         const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
+        const std::size_t node = syntax.node_at_token[index];
+        const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
+        const bool object_member = parent < syntax.nodes.size() &&
+                                   syntax.nodes[parent].role == JsGroupRole::ObjectLiteral;
+        const bool statement_label = next == ":" && !object_member &&
+            (index == 0 || previous == ";" || previous == "{" || previous == "}");
         JsIdentifierRole role = JsIdentifierRole::Reference;
         if (previous == ".") role = JsIdentifierRole::MemberProperty;
         else if (previous == "#") role = JsIdentifierRole::PrivateName;
-        else if (next == ":") role = JsIdentifierRole::PropertyKey;
-        else if (previous == "break" || previous == "continue" || next == ":")
+        else if (next == ":" && object_member) role = JsIdentifierRole::PropertyKey;
+        else if (previous == "break" || previous == "continue" || statement_label)
             role = JsIdentifierRole::Label;
         else if (previous == "import" || previous == "export" || previous == "as")
             role = JsIdentifierRole::ImportExportName;
-        const std::size_t node = syntax.node_at_token[index];
-        const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
         if (role == JsIdentifierRole::Reference && parent < syntax.nodes.size() &&
             syntax.nodes[parent].role == JsGroupRole::ObjectLiteral &&
             (previous == "{" || previous == ",") && (next == "}" || next == ","))
@@ -367,18 +371,25 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     return graph;
 }
 
-void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& tokens) {
+void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& tokens,
+                           JsConcreteSyntax& syntax) {
     graph.references_by_binding.resize(graph.bindings.size());
     std::unordered_set<std::size_t> declarations;
-    for (const auto& binding : graph.bindings) declarations.insert(binding.token);
+    for (const auto& binding : graph.bindings) {
+        declarations.insert(binding.token);
+        if (binding.token < syntax.identifier_roles.size())
+            syntax.identifier_roles[binding.token] = JsIdentifierRole::Binding;
+    }
     static const std::unordered_set<std::string> non_references = {
         "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
     };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         if (tokens[index].kind != JsTokenKind::Identifier || declarations.count(index) || non_references.count(tokens[index].text)) continue;
-        const std::string previous = index ? tokens[index - 1].text : std::string();
-        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
-        if (previous == "." || previous == "#" || (next == ":" && (previous == "{" || previous == ","))) continue;
+        const JsIdentifierRole role = index < syntax.identifier_roles.size()
+            ? syntax.identifier_roles[index] : JsIdentifierRole::Unknown;
+        if (role == JsIdentifierRole::PropertyKey || role == JsIdentifierRole::MemberProperty ||
+            role == JsIdentifierRole::Label || role == JsIdentifierRole::ImportExportName ||
+            role == JsIdentifierRole::PrivateName) continue;
         const std::size_t containing = graph.scope_at_token[index];
         std::size_t resolved = graph.bindings.size();
         std::size_t resolved_scope = graph.scopes.size();
@@ -388,6 +399,8 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             if (!scope) break;
         }
         graph.references.push_back({index, containing, resolved, resolved_scope});
+        if (index < syntax.identifier_roles.size() && role != JsIdentifierRole::ShorthandProperty)
+            syntax.identifier_roles[index] = JsIdentifierRole::Reference;
         if (resolved < graph.bindings.size()) graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
     }
 }
@@ -1949,9 +1962,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
         output.pop_back();
     }
     if (recorder) {
-        [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
+        JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
-        resolve_js_references(scopes, tokens);
+        resolve_js_references(scopes, tokens, syntax);
         const JsSemanticFacts facts = build_js_semantic_facts(tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
         if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
