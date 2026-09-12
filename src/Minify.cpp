@@ -1188,6 +1188,9 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
                 ":" + std::to_string(syntax.expression_precedence[token]) + ";";
     for (std::size_t token = 0; token < tokens.size(); ++token) {
         const JsIdentifierRole role = syntax.identifier_roles[token];
+        if (tokens[token].kind == JsTokenKind::Identifier)
+            signature += "K" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(role)) + ";";
         if (role == JsIdentifierRole::MemberProperty || role == JsIdentifierRole::PropertyKey)
             signature += "P" + std::to_string(token) + ":" +
                 std::to_string(static_cast<unsigned>(role)) + ";";
