@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <map>
 #include <string>
 
 namespace {
@@ -30,8 +31,22 @@ int main(int argc, char** argv) {
         std::string source{std::istreambuf_iterator<char>(input), {}};
         jspp::syntax::ParseResult result;
         const auto status = jspp::syntax::parse(std::move(source), result);
+        std::map<std::string, std::size_t> features;
+        for (const auto& token : result.tree.lexical.tokens) {
+            const std::string_view spelling = jspp::syntax::spelling(result.tree.lexical, token);
+            if (spelling == "function" || spelling == "class" || spelling == "=>" ||
+                spelling == "import" || spelling == "export" || spelling == "async" ||
+                spelling == "await" || spelling == "yield" || spelling == "?." ||
+                spelling == "??" || spelling == "..." || spelling == "#")
+                ++features[std::string(spelling)];
+            if (token.kind == jspp::syntax::TokenKind::Template) ++features["template"];
+            if (token.kind == jspp::syntax::TokenKind::Regex) ++features["regex"];
+        }
         std::cout << argv[argument] << '\t' << status_name(status) << '\t'
                   << result.tree.lexical.tokens.size() << '\t'
-                  << result.tree.nodes.size() << '\n';
+                  << result.tree.nodes.size();
+        for (const auto& feature : features)
+            std::cout << '\t' << feature.first << '=' << feature.second;
+        std::cout << '\n';
     }
 }
