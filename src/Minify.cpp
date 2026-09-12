@@ -1069,8 +1069,17 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
             signature += ";";
         }
         if (token < facts.invocations.size() &&
-            facts.invocations[token] != JsInvocationKind::None)
-            signature += facts.invocations[token] == JsInvocationKind::Construct ? "N;" : "C;";
+            facts.invocations[token] != JsInvocationKind::None) {
+            bool local = false;
+            if (token && token - 1 < graph.reference_at_token.size()) {
+                const std::size_t reference = graph.reference_at_token[token - 1];
+                local = reference < graph.references.size() &&
+                    graph.references[reference].binding < graph.bindings.size() &&
+                    graph.bindings[graph.references[reference].binding].kind == JsBindingKind::Function;
+            }
+            signature += facts.invocations[token] == JsInvocationKind::Construct ? "N;"
+                : local ? "L;" : "C;";
+        }
         if (tokens[token].text == "." || tokens[token].text == "[") signature += "P;";
         if (tokens[token].text == "throw") signature += "T;";
         const JsEffectSummary& summary = facts.effect_summaries[token];

@@ -782,6 +782,8 @@ int main() {
     expect(original_signature.find("Z")!=std::string::npos,"abstract conversion inventory");
     expect(minify::javascript_effect_signature("obj.x;obj[key];obj?.x;delete obj.x;#x in obj",original_signature,err),err);
     expect(original_signature.find("Y")!=std::string::npos,"property effect inventory");
+    expect(minify::javascript_effect_signature("function local(){}local();unknown();new Box()",original_signature,err),err);
+    expect(original_signature.find("L;")!=std::string::npos&&original_signature.find("C;")!=std::string::npos&&original_signature.find("N;")!=std::string::npos,"resolved and unknown invocation inventory");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
