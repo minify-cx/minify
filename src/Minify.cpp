@@ -610,6 +610,8 @@ struct JsScopeGraph {
     std::vector<std::size_t> unresolved_references;
     std::vector<std::vector<std::size_t>> captures_by_function;
     std::vector<JsEscapeKind> binding_escape;
+    struct BindingUseCount { std::size_t reads = 0, writes = 0, captures = 0; };
+    std::vector<BindingUseCount> binding_uses;
 };
 
 bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
@@ -904,10 +906,18 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             graph.unresolved_references.push_back(graph.references.size() - 1);
     }
     graph.binding_escape.resize(graph.bindings.size(), JsEscapeKind::Local);
+    graph.binding_uses.resize(graph.bindings.size());
     for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
         JsEscapeKind escape = JsEscapeKind::Local;
         for (std::size_t reference_id : graph.references_by_binding[binding]) {
             const JsReference& reference = graph.references[reference_id];
+            if (reference.access == JsReferenceAccess::Read) ++graph.binding_uses[binding].reads;
+            else if (reference.access == JsReferenceAccess::Write) ++graph.binding_uses[binding].writes;
+            else {
+                ++graph.binding_uses[binding].reads;
+                ++graph.binding_uses[binding].writes;
+            }
+            if (reference.captured) ++graph.binding_uses[binding].captures;
             if (reference.captured) { escape = JsEscapeKind::Captured; break; }
             const std::size_t token = reference.token;
             if (token && tokens[token - 1].text == "return") escape = JsEscapeKind::Returned;
