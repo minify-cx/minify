@@ -156,24 +156,14 @@ struct JsEffectSummary {
     bool writes_state = false;
     bool calls_user_code = false;
     bool may_throw = false;
-    bool allocates_identity = false;
-    bool mutates_value = false;
-    bool iterates = false;
-    bool suspends = false;
-    bool terminates_abruptly = false;
     bool definitely_pure() const {
-        return !reads_state && !writes_state && !calls_user_code && !may_throw &&
-               !allocates_identity && !mutates_value && !iterates && !suspends &&
-               !terminates_abruptly;
+        return !reads_state && !writes_state && !calls_user_code && !may_throw;
     }
 };
 
 [[maybe_unused]] JsEffectSummary sequence_js_effects(JsEffectSummary left, const JsEffectSummary& right) {
     left.reads_state |= right.reads_state; left.writes_state |= right.writes_state;
     left.calls_user_code |= right.calls_user_code; left.may_throw |= right.may_throw;
-    left.allocates_identity |= right.allocates_identity; left.mutates_value |= right.mutates_value;
-    left.iterates |= right.iterates; left.suspends |= right.suspends;
-    left.terminates_abruptly |= right.terminates_abruptly;
     return left;
 }
 
@@ -186,6 +176,7 @@ struct JsSemanticFacts {
     std::vector<JsInvocationKind> invocations;
     std::vector<JsConversionKind> conversions;
     std::vector<JsPropertyEffectKind> property_effects;
+    std::vector<unsigned char> extended_effects;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -196,8 +187,6 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.effect_summaries.resize(tokens.size());
     facts.truthiness.resize(tokens.size(), JsTruthiness::Unknown);
     facts.invocations.resize(tokens.size(), JsInvocationKind::None);
-    facts.conversions.resize(tokens.size(), JsConversionKind::None);
-    facts.property_effects.resize(tokens.size(), JsPropertyEffectKind::None);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
         if (token.kind == JsTokenKind::Number)
@@ -213,11 +202,6 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
         else if (token.text == "true" || token.kind == JsTokenKind::Regex ||
                  token.kind == JsTokenKind::String || token.kind == JsTokenKind::Template)
             facts.truthiness[index] = JsTruthiness::Truthy;
-        else if (token.kind == JsTokenKind::Number) {
-            const std::string_view number = token.text;
-            facts.truthiness[index] = number == "0" || number == "0n" ||
-                number == "0.0" ? JsTruthiness::Falsy : JsTruthiness::Truthy;
-        }
 
         if (facts.values[index] != JsValueKind::Unknown || token.kind == JsTokenKind::Regex ||
             token.kind == JsTokenKind::Template)
@@ -265,31 +249,42 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
                 summary.may_throw = true;
             }
         }
+    }
+    return facts;
+}
+
+void extend_js_semantic_facts(const std::vector<JsToken>& tokens, JsSemanticFacts& facts) {
+    facts.conversions.resize(tokens.size(), JsConversionKind::None);
+    facts.property_effects.resize(tokens.size(), JsPropertyEffectKind::None);
+    facts.extended_effects.resize(tokens.size(), 0);
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const JsToken& token = tokens[index];
+        if (token.kind == JsTokenKind::Number) {
+            const std::string_view number = token.text;
+            facts.truthiness[index] = number == "0" || number == "0n" || number == "0.0"
+                ? JsTruthiness::Falsy : JsTruthiness::Truthy;
+        }
         if (token.text == "return" || token.text == "throw" || token.text == "break" ||
-            token.text == "continue") summary.terminates_abruptly = true;
-        if (token.text == "await" || token.text == "yield") summary.suspends = true;
+            token.text == "continue") facts.extended_effects[index] |= 16;
+        if (token.text == "await" || token.text == "yield") facts.extended_effects[index] |= 8;
         if (token.text == "new" || token.text == "function" || token.text == "class")
-            summary.allocates_identity = true;
-        if (token.text == "class" || token.text == "extends") summary.may_throw = true;
-        if (token.text == "for" && index + 1 < tokens.size()) summary.iterates = true;
+            facts.extended_effects[index] |= 1;
+        if (token.text == "for") facts.extended_effects[index] |= 4;
         if (token.text == "!" || token.text == "&&" || token.text == "||" || token.text == "?")
             facts.conversions[index] = JsConversionKind::ToBoolean;
-        else if (token.text == "+" || token.text == "-")
-            facts.conversions[index] = JsConversionKind::ToPrimitive;
+        else if (token.text == "+" || token.text == "-") facts.conversions[index] = JsConversionKind::ToPrimitive;
         else if (token.text == "*" || token.text == "/" || token.text == "%" || token.text == "**")
             facts.conversions[index] = JsConversionKind::ToNumeric;
         else if (token.text == "<" || token.text == ">" || token.text == "<=" ||
                  token.text == ">=" || token.text == "==" || token.text == "!=")
             facts.conversions[index] = JsConversionKind::Compare;
-        else if (token.text == "[" || token.text == ".")
-            facts.conversions[index] = JsConversionKind::ToPropertyKey;
+        else if (token.text == "[" || token.text == ".") facts.conversions[index] = JsConversionKind::ToPropertyKey;
         if (token.text == ".") facts.property_effects[index] = JsPropertyEffectKind::Read;
         else if (token.text == "[") facts.property_effects[index] = JsPropertyEffectKind::Computed;
         else if (token.text == "?.") facts.property_effects[index] = JsPropertyEffectKind::Optional;
         else if (token.text == "delete") facts.property_effects[index] = JsPropertyEffectKind::Delete;
         else if (token.text == "#") facts.property_effects[index] = JsPropertyEffectKind::PrivateCheck;
     }
-    return facts;
 }
 
 enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
@@ -1145,12 +1140,12 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
         }
         if (tokens[token].text == "." || tokens[token].text == "[") signature += "P;";
         if (tokens[token].text == "throw") signature += "T;";
-        const JsEffectSummary& summary = facts.effect_summaries[token];
-        if (summary.allocates_identity) signature += "A;";
-        if (summary.mutates_value) signature += "M;";
-        if (summary.iterates) signature += "I;";
-        if (summary.suspends) signature += "S;";
-        if (summary.terminates_abruptly) signature += "X;";
+        const unsigned char extended = facts.extended_effects[token];
+        if (extended & 1) signature += "A;";
+        if (extended & 2) signature += "M;";
+        if (extended & 4) signature += "I;";
+        if (extended & 8) signature += "S;";
+        if (extended & 16) signature += "X;";
         if (facts.values[token] != JsValueKind::Unknown)
             signature += "V" + std::to_string(static_cast<unsigned>(facts.values[token])) + ";";
         if (facts.truthiness[token] != JsTruthiness::Unknown)
@@ -2989,16 +2984,39 @@ bool html(const std::string& input, std::string& output, std::string& error) {
 // redundant horizontal whitespace, and line terminators at boundaries which
 // already carry an unambiguous statement/block delimiter. Other significant
 // line terminators remain available to automatic semicolon insertion.
+struct JsDiagnostics {
+    std::string* binding = nullptr;
+    std::string* effect = nullptr;
+    std::string* ir = nullptr;
+    std::string* cfg = nullptr;
+};
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((cold, noinline))
+#endif
+void populate_js_diagnostics(const std::vector<JsToken>& tokens,
+                             const JsConcreteSyntax& syntax,
+                             const JsScopeGraph& scopes,
+                             JsSemanticFacts& facts,
+                             JsDiagnostics& diagnostics) {
+    if (diagnostics.effect) extend_js_semantic_facts(tokens, facts);
+    if (diagnostics.binding)
+        *diagnostics.binding = build_js_binding_signature(tokens, syntax, scopes);
+    if (diagnostics.effect)
+        *diagnostics.effect = build_js_effect_signature(tokens, scopes, facts, syntax);
+    if (diagnostics.ir)
+        *diagnostics.ir = build_js_ir_signature(tokens, syntax, scopes);
+    if (diagnostics.cfg)
+        *diagnostics.cfg = build_js_cfg_signature(tokens, syntax);
+}
+
 static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
                               bool collect_tokens = false, bool structured_rewrite = false,
                               bool aggressive_rewrite = false,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
-                              std::string* binding_signature = nullptr,
-                              std::string* effect_signature = nullptr,
-                              std::string* ir_signature = nullptr,
-                              std::string* cfg_signature = nullptr) {
+                              JsDiagnostics* diagnostics = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -3444,15 +3462,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
-        const JsSemanticFacts facts = build_js_semantic_facts(tokens);
-        if (binding_signature)
-            *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
-        if (effect_signature)
-            *effect_signature = build_js_effect_signature(tokens, scopes, facts, syntax);
-        if (ir_signature)
-            *ir_signature = build_js_ir_signature(tokens, syntax, scopes);
-        if (cfg_signature)
-            *cfg_signature = build_js_cfg_signature(tokens, syntax);
+        JsSemanticFacts facts = build_js_semantic_facts(tokens);
+        if (diagnostics) populate_js_diagnostics(tokens, syntax, scopes, facts, *diagnostics);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
@@ -3535,32 +3546,36 @@ bool javascript_binding_signature(const std::string& input, std::string& signatu
                                   std::string& error) {
     std::string ignored;
     signature.clear();
+    JsDiagnostics diagnostics{&signature, nullptr, nullptr, nullptr};
     return minify_javascript(input, ignored, error, false, true, false, false,
-                             nullptr, nullptr, &signature);
+                             nullptr, nullptr, &diagnostics);
 }
 
 bool javascript_effect_signature(const std::string& input, std::string& signature,
                                  std::string& error) {
     std::string ignored;
     signature.clear();
+    JsDiagnostics diagnostics{nullptr, &signature, nullptr, nullptr};
     return minify_javascript(input, ignored, error, false, true, false, false,
-                             nullptr, nullptr, nullptr, &signature);
+                             nullptr, nullptr, &diagnostics);
 }
 
 bool javascript_ir_signature(const std::string& input, std::string& signature,
                              std::string& error) {
     std::string ignored;
     signature.clear();
+    JsDiagnostics diagnostics{nullptr, nullptr, &signature, nullptr};
     return minify_javascript(input, ignored, error, false, true, false, false,
-                             nullptr, nullptr, nullptr, nullptr, &signature);
+                             nullptr, nullptr, &diagnostics);
 }
 
 bool javascript_cfg_signature(const std::string& input, std::string& signature,
                               std::string& error) {
     std::string ignored;
     signature.clear();
+    JsDiagnostics diagnostics{nullptr, nullptr, nullptr, &signature};
     return minify_javascript(input, ignored, error, false, true, false, false,
-                             nullptr, nullptr, nullptr, nullptr, nullptr, &signature);
+                             nullptr, nullptr, &diagnostics);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
