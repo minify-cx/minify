@@ -262,19 +262,21 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
         const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
         const bool object_member = parent < syntax.nodes.size() &&
                                    syntax.nodes[parent].role == JsGroupRole::ObjectLiteral;
+        const bool object_member_start = object_member &&
+                                         (previous == "{" || previous == ",");
         const bool statement_label = next == ":" && !object_member &&
             (index == 0 || previous == ";" || previous == "{" || previous == "}");
         JsIdentifierRole role = JsIdentifierRole::Reference;
         if (previous == ".") role = JsIdentifierRole::MemberProperty;
         else if (previous == "#") role = JsIdentifierRole::PrivateName;
-        else if (next == ":" && object_member) role = JsIdentifierRole::PropertyKey;
+        else if (next == ":" && object_member_start) role = JsIdentifierRole::PropertyKey;
         else if (previous == "break" || previous == "continue" || statement_label)
             role = JsIdentifierRole::Label;
         else if (previous == "import" || previous == "export" || previous == "as")
             role = JsIdentifierRole::ImportExportName;
         if (role == JsIdentifierRole::Reference && parent < syntax.nodes.size() &&
-            syntax.nodes[parent].role == JsGroupRole::ObjectLiteral &&
-            (previous == "{" || previous == ",") && (next == "}" || next == ","))
+            syntax.nodes[parent].role == JsGroupRole::ObjectLiteral && object_member_start &&
+            (next == "}" || next == ","))
             role = JsIdentifierRole::ShorthandProperty;
         syntax.identifier_roles[index] = role;
     }

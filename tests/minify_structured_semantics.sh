@@ -25,7 +25,8 @@ run_case arguments 'function keep(longName){return arguments[0]}console.log(keep
 run_case comma_arguments 'function invoke(longName){return Math.max(0,longName,9)}console.log(invoke(4));'
 run_case nested_call_in_object 'function invoke(longName){return {value:Math.max(0,longName,9)}}console.log(invoke(4).value);'
 run_case nested_call_after_property 'function invoke(longName){return {value:Math.max(0,longName,9),other:1}}console.log(invoke(4).value);'
+run_case ternary_in_object 'function offsets(xPadding,yPadding,crossAxis){return {x:crossAxis?2-xPadding:0,y:crossAxis?2-yPadding:0}}console.log(offsets(1,2,true));'
 run_case comma_shorthand 'function pair(resolve,reject){return {resolve,reject}}console.log(Object.keys(pair(1,2)).join(","));'
 run_case ternary 'function choose(longName,otherName){return longName?otherName:longName}console.log(choose(0,7));'
 run_case contextual 'function* outer(){return (function keep(yield){return yield})(4)}console.log(outer().next().value);'
-echo "Structured JavaScript semantic differential test passed (17 cases)"
+echo "Structured JavaScript semantic differential test passed (18 cases)"
