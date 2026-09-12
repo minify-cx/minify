@@ -28,6 +28,7 @@ struct Options {
     Options(OptimizationLevel level) : optimization(level) {}
     OptimizationLevel optimization = OptimizationLevel::Conservative;
     bool structured_jsx_expressions = false;
+    bool mangle_top_level = false;
     std::vector<std::string> property_mangle_allowlist;
     std::vector<JavaScriptOptimizationPass> disabled_javascript_passes;
 };

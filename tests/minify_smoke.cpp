@@ -800,6 +800,12 @@ int main() {
            original_signature.find("eligible\t1")!=std::string::npos&&
            original_signature.find("top-level\t1")!=std::string::npos,
            "mangle coverage report");
+    minify::Options top_level_options(minify::OptimizationLevel::Aggressive);
+    top_level_options.mangle_top_level=true;
+    expect(minify::javascript("const longValue=1;use(longValue)",aggressive,err,top_level_options),err);
+    eq(aggressive,"const $=1;use($)","explicit closed-world top-level mangling");
+    expect(minify::javascript("export const longValue=1;use(longValue)",aggressive,err,top_level_options),err);
+    eq(aggressive,"export const longValue=1;use(longValue)","top-level mangling excludes modules");
     expect(minify::javascript_effect_signature("function total(longValue){return call(longValue)}",original_signature,err),err);
     expect(minify::javascript_effect_signature("function total($){return call($)}",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"effect signature accepts alpha renaming");

@@ -1682,7 +1682,7 @@ bool js_identifier_is_shorthand(const std::vector<JsToken>& tokens,
 
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
-    const JsScopeGraph& graph) {
+    const JsScopeGraph& graph, bool mangle_top_level = false) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string_view> reserved = {
         "await","break","case","catch","class","const","continue","debugger",
@@ -1697,7 +1697,11 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         ++binding_counts[binding.scope][binding.name];
     const std::size_t no_unit = graph.scopes.size();
     std::vector<std::size_t> unit_of_scope(graph.scopes.size(), no_unit);
+    if (mangle_top_level && !graph.scopes.empty() &&
+        graph.scopes[0].kind == JsScopeKind::Script)
+        unit_of_scope[0] = 0;
     for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
+        unit_of_scope[scope] = unit_of_scope[graph.scopes[scope].parent];
         for (std::size_t cursor = scope; cursor; cursor = graph.scopes[cursor].parent) {
             if (graph.scopes[cursor].kind == JsScopeKind::Function) {
                 unit_of_scope[scope] = cursor;
@@ -1722,10 +1726,12 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     }
     const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
     std::vector<std::string> coordinated_names(graph.bindings.size());
-    for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
+    for (std::size_t unit = 0; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
-        if (function.kind != JsScopeKind::Function ||
-            function.last_token > tokens.size() || !function.first_token) continue;
+        const bool top_level_script = unit == 0 && mangle_top_level &&
+                                      function.kind == JsScopeKind::Script;
+        if ((!top_level_script && function.kind != JsScopeKind::Function) ||
+            function.last_token > tokens.size() || (!top_level_script && !function.first_token)) continue;
 
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         bool uses_arguments = false;
@@ -3406,6 +3412,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
                               bool collect_tokens = false, bool structured_rewrite = false,
                               bool aggressive_rewrite = false,
+                              bool mangle_top_level = false,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
                               JsDiagnostics* diagnostics = nullptr) {
@@ -3863,7 +3870,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     disabled_passes->end(), pass) == disabled_passes->end();
             };
             auto replacements = pass_enabled(JavaScriptOptimizationPass::BindingRename)
-                ? plan_safe_js_parameter_renaming(tokens, syntax, scopes)
+                ? plan_safe_js_parameter_renaming(tokens, syntax, scopes, mangle_top_level)
                 : std::vector<JsReplacement>{};
             if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
                 auto arrow_parentheses = plan_js_single_arrow_parentheses(tokens);
@@ -3875,7 +3882,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                 return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                          aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
-                                         property_allowlist, disabled_passes);
+                                         mangle_top_level, property_allowlist, disabled_passes);
             }
             if (aggressive_rewrite) {
                 auto append = [&](std::vector<JsReplacement> more) {
@@ -3910,7 +3917,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
                     if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                     return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
-                                             true, true, true, property_allowlist,
+                                             true, true, true, mangle_top_level, property_allowlist,
                                              disabled_passes);
                 }
             }
@@ -3930,6 +3937,7 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
                              options.optimization != OptimizationLevel::Conservative,
                              options.optimization != OptimizationLevel::Conservative,
                              options.optimization == OptimizationLevel::Aggressive,
+                             options.mangle_top_level,
                              options.optimization == OptimizationLevel::Aggressive
                                  ? &options.property_mangle_allowlist : nullptr,
                              &options.disabled_javascript_passes);
@@ -3940,7 +3948,7 @@ bool javascript_binding_signature(const std::string& input, std::string& signatu
     std::string ignored;
     signature.clear();
     JsDiagnostics diagnostics{&signature, nullptr, nullptr, nullptr};
-    return minify_javascript(input, ignored, error, false, true, false, false,
+    return minify_javascript(input, ignored, error, false, true, false, false, false,
                              nullptr, nullptr, &diagnostics);
 }
 
@@ -3949,7 +3957,7 @@ bool javascript_mangle_report(const std::string& input, std::string& report,
     std::string ignored;
     report.clear();
     JsDiagnostics diagnostics{nullptr, nullptr, nullptr, nullptr, &report};
-    return minify_javascript(input, ignored, error, false, true, false, false,
+    return minify_javascript(input, ignored, error, false, true, false, false, false,
                              nullptr, nullptr, &diagnostics);
 }
 
@@ -3958,7 +3966,7 @@ bool javascript_effect_signature(const std::string& input, std::string& signatur
     std::string ignored;
     signature.clear();
     JsDiagnostics diagnostics{nullptr, &signature, nullptr, nullptr};
-    return minify_javascript(input, ignored, error, false, true, false, false,
+    return minify_javascript(input, ignored, error, false, true, false, false, false,
                              nullptr, nullptr, &diagnostics);
 }
 
@@ -3967,7 +3975,7 @@ bool javascript_ir_signature(const std::string& input, std::string& signature,
     std::string ignored;
     signature.clear();
     JsDiagnostics diagnostics{nullptr, nullptr, &signature, nullptr};
-    return minify_javascript(input, ignored, error, false, true, false, false,
+    return minify_javascript(input, ignored, error, false, true, false, false, false,
                              nullptr, nullptr, &diagnostics);
 }
 
@@ -3976,7 +3984,7 @@ bool javascript_cfg_signature(const std::string& input, std::string& signature,
     std::string ignored;
     signature.clear();
     JsDiagnostics diagnostics{nullptr, nullptr, nullptr, &signature};
-    return minify_javascript(input, ignored, error, false, true, false, false,
+    return minify_javascript(input, ignored, error, false, true, false, false, false,
                              nullptr, nullptr, &diagnostics);
 }
 
@@ -4428,7 +4436,7 @@ static bool minify_jsx(const std::string& input, std::string& output,
         std::string part, e;
         if (!minify_javascript(input.substr(js_start, end - js_start), part, e,
                                true, collect_tokens, structured_expressions && inside_expression,
-                               aggressive_expressions && inside_expression, nullptr,
+                               aggressive_expressions && inside_expression, false, nullptr,
                                disabled_passes)) {
             error = e;
             return false;

@@ -134,11 +134,12 @@ fs::path minified_path(const fs::path& input) {
 void help() {
     std::cout
         << "minify - conservative multi-format minifier\n\n"
-        << "Usage: minify [--in-place|-i] [--structured|--aggressive] [--structured-jsx-expressions] <files...>\n\n"
+        << "Usage: minify [--in-place|-i] [--structured|--aggressive] [--mangle-top-level] [--structured-jsx-expressions] <files...>\n\n"
         << "By default foo.js is written to foo.min.js.\n"
         << "Use --in-place (or -i) to overwrite the source file.\n"
         << "Use --structured to enable proven-safe JavaScript binding renames.\n"
         << "Use --aggressive to enable the explicitly opt-in compression contract.\n"
+        << "Use --mangle-top-level to rename script globals under a closed-world contract.\n"
         << "Use --structured-jsx-expressions to apply them inside parsed JSX expressions.\n"
         << "Use --mangle-property=NAME with --aggressive to rename an approved property.\n";
 }
@@ -158,6 +159,11 @@ int main(int argc, char** argv) {
         if (arg == "--in-place" || arg == "-i") { in_place = true; continue; }
         if (arg == "--structured") { options.optimization = minify::OptimizationLevel::Structured; continue; }
         if (arg == "--aggressive") { options.optimization = minify::OptimizationLevel::Aggressive; continue; }
+        if (arg == "--mangle-top-level") {
+            options.optimization = minify::OptimizationLevel::Aggressive;
+            options.mangle_top_level = true;
+            continue;
+        }
         if (arg.rfind("--mangle-property=", 0) == 0) {
             const std::string name = arg.substr(18);
             if (name.empty()) { std::cerr << "minify: empty property allowlist entry\n"; return 2; }
