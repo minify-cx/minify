@@ -1227,10 +1227,16 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
         if (syntax.module_roles[token] != JsModuleRole::None)
             signature += "M" + std::to_string(token) + ":" +
                 std::to_string(static_cast<unsigned>(syntax.module_roles[token])) + ";";
-    for (std::size_t scope = 0; scope < graph.scopes.size(); ++scope)
+    for (std::size_t scope = 0; scope < graph.scopes.size(); ++scope) {
+        const JsScope& value = graph.scopes[scope];
+        signature += "C" + std::to_string(scope) + ":" +
+            std::to_string(static_cast<unsigned>(value.kind)) + ":" +
+            std::to_string(value.parent) + ":" + std::to_string(value.first_token) +
+            "-" + std::to_string(value.last_token) + ";";
         if (graph.scopes[scope].dynamic_lookup || graph.scopes[scope].descendant_dynamic_lookup)
             signature += "B" + std::to_string(scope) + ":" +
                 (graph.scopes[scope].dynamic_lookup ? "D" : "d") + ";";
+    }
     return signature;
 }
 

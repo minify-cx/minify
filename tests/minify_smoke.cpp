@@ -765,7 +765,7 @@ int main() {
     expect(minify::javascript_ir_signature("new Box(obj.value,import('x'))",original_signature,err),err);
     expect(original_signature.find("A")!=std::string::npos&&original_signature.find("P")!=std::string::npos&&original_signature.find("K")!=std::string::npos,"IR invocation and identifier-role inventory");
     expect(minify::javascript_ir_signature("label:try{if(x)throw y;switch(z){case 1:break}}catch(e){}finally{}",original_signature,err),err);
-    expect(original_signature.find("S")!=std::string::npos,"IR statement inventory");
+    expect(original_signature.find("S")!=std::string::npos&&original_signature.find("C")!=std::string::npos,"IR statement and lexical-scope inventory");
     expect(minify::javascript_ir_signature("async function* f(a=call()){class C{static{}get x(){return a}}}",original_signature,err),err);
     expect(original_signature.find("F")!=std::string::npos&&original_signature.find("I")!=std::string::npos,"IR function and initialization inventory");
     expect(minify::javascript_ir_signature("import x from'x';export{x};function f(){eval('x')}",original_signature,err),err);
