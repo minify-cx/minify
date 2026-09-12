@@ -1128,6 +1128,17 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
     for (std::size_t id = 0; id < syntax.nodes.size(); ++id)
         if (syntax.nodes[id].role == JsGroupRole::Arguments)
             signature += "A" + std::to_string(id) + ";";
+        else if (syntax.nodes[id].role == JsGroupRole::ObjectLiteral)
+            signature += "O" + std::to_string(id) + ";";
+        else if (syntax.nodes[id].role == JsGroupRole::ArrayLiteral)
+            signature += "R" + std::to_string(id) + ";";
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        if (tokens[token].kind == JsTokenKind::Template)
+            signature += "G" + std::to_string(token) + ";";
+        if (token >= 2 && tokens[token - 2].text == "." &&
+            tokens[token - 1].text == "." && tokens[token].text == ".")
+            signature += "D" + std::to_string(token - 2) + ";";
+    }
     for (std::size_t token = 0; token < tokens.size(); ++token)
         if (syntax.statement_kinds[token] != JsStatementKind::None)
             signature += "S" + std::to_string(token) + ":" +
