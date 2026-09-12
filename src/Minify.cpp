@@ -859,46 +859,59 @@ std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
 std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
     const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
     std::vector<std::unordered_set<std::string_view>> barriers(graph.scopes.size());
-    for (std::size_t function = 1; function < graph.scopes.size(); ++function) {
-        if (graph.scopes[function].kind != JsScopeKind::Function) continue;
-        for (const JsBinding& binding : graph.bindings) {
-            if (binding.scope == function) continue;
-            std::size_t scope = binding.scope;
-            while (scope && scope != function) scope = graph.scopes[scope].parent;
-            if (scope == function) barriers[function].insert(binding.name);
-        }
-        for (std::size_t reference : graph.unresolved_references) {
-            const JsReference& occurrence = graph.references[reference];
-            std::size_t scope = occurrence.scope;
-            while (scope && scope != function) scope = graph.scopes[scope].parent;
-            if (scope == function) barriers[function].insert(tokens[occurrence.token].text);
-        }
+    for (const JsBinding& binding : graph.bindings) {
+        const std::size_t owner = graph.containing_function[binding.scope];
+        for (std::size_t scope = graph.scopes[owner].parent; scope; scope = graph.scopes[scope].parent)
+            if (graph.scopes[scope].kind == JsScopeKind::Function)
+                barriers[scope].insert(binding.name);
+    }
+    for (std::size_t reference : graph.unresolved_references) {
+        const JsReference& occurrence = graph.references[reference];
+        const std::size_t owner = graph.containing_function[occurrence.scope];
+        for (std::size_t scope = graph.scopes[owner].parent; scope; scope = graph.scopes[scope].parent)
+            if (graph.scopes[scope].kind == JsScopeKind::Function)
+                barriers[scope].insert(tokens[occurrence.token].text);
     }
     return barriers;
 }
 
-std::vector<std::unordered_set<std::size_t>> build_js_binding_interference(
-    const JsScopeGraph& graph) {
-    std::vector<std::unordered_set<std::size_t>> interference(graph.bindings.size());
-    for (std::size_t left = 0; left < graph.bindings.size(); ++left) {
-        for (std::size_t right = left + 1; right < graph.bindings.size(); ++right) {
-            const JsBinding& a = graph.bindings[left];
-            const JsBinding& b = graph.bindings[right];
-            if (graph.containing_function[a.scope] != graph.containing_function[b.scope]) continue;
-            const JsScope& a_scope = graph.scopes[a.scope];
-            const JsScope& b_scope = graph.scopes[b.scope];
-            const bool reusable_kinds =
-                (a.kind == JsBindingKind::Lexical || a.kind == JsBindingKind::Catch) &&
-                (b.kind == JsBindingKind::Lexical || b.kind == JsBindingKind::Catch);
-            const bool disjoint = a_scope.last_token <= b_scope.first_token ||
-                                  b_scope.last_token <= a_scope.first_token;
-            if (!reusable_kinds || !disjoint) {
-                interference[left].insert(right);
-                interference[right].insert(left);
-            }
-        }
+struct JsBindingInterferenceGraph {
+    const JsScopeGraph& graph;
+    bool conflicts(std::size_t left, std::size_t right) const {
+        const JsBinding& a = graph.bindings[left];
+        const JsBinding& b = graph.bindings[right];
+        if (graph.containing_function[a.scope] != graph.containing_function[b.scope]) return false;
+        const JsScope& a_scope = graph.scopes[a.scope];
+        const JsScope& b_scope = graph.scopes[b.scope];
+        const bool reusable_kinds =
+            (a.kind == JsBindingKind::Lexical || a.kind == JsBindingKind::Catch) &&
+            (b.kind == JsBindingKind::Lexical || b.kind == JsBindingKind::Catch);
+        const bool disjoint = a_scope.last_token <= b_scope.first_token ||
+                              b_scope.last_token <= a_scope.first_token;
+        return !reusable_kinds || !disjoint;
     }
-    return interference;
+};
+
+struct JsNameAlphabet { std::string first; std::string continuation; };
+
+JsNameAlphabet build_js_frequency_alphabet(const std::vector<JsToken>& tokens,
+                                            std::size_t begin, std::size_t end,
+                                            bool worthwhile) {
+    const std::string default_first = "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const std::string default_continuation = default_first + "0123456789";
+    if (!worthwhile) return {default_first, default_continuation};
+    std::unordered_map<char, std::size_t> frequency;
+    for (std::size_t token = begin; token < end; ++token)
+        for (char character : tokens[token].text)
+            if (default_continuation.find(character) != std::string::npos)
+                ++frequency[character];
+    auto ranked = [&](std::string alphabet) {
+        std::stable_sort(alphabet.begin(), alphabet.end(), [&](char left, char right) {
+            return frequency[left] > frequency[right];
+        });
+        return alphabet;
+    };
+    return {ranked(default_first), ranked(default_continuation)};
 }
 
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
@@ -942,7 +955,6 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
     }
     const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
-    const auto binding_interference = build_js_binding_interference(graph);
     for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
         if (function.kind != JsScopeKind::Function ||
@@ -1002,42 +1014,38 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 unit_of_scope[reference.binding_scope] != unit)
                 occupied.insert(tokens[reference.token].text);
         }
-        std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
-            return graph.references_by_binding[left].size() >
-                   graph.references_by_binding[right].size();
-        });
-
-        const std::string default_first = "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-        const std::string default_continuation = default_first + "0123456789";
-        std::unordered_map<char, std::size_t> frequency;
-        for (std::size_t token = function.first_token; token < function.last_token; ++token)
-            for (char character : tokens[token].text)
-                if (default_continuation.find(character) != std::string::npos)
-                    ++frequency[character];
-        auto ranked = [&](std::string alphabet) {
-            std::stable_sort(alphabet.begin(), alphabet.end(), [&](char left, char right) {
-                return frequency[left] > frequency[right];
-            });
-            return alphabet;
+        const auto estimated_saving = [&](std::size_t binding) {
+            const JsBinding& value = graph.bindings[binding];
+            const std::size_t occurrences = value.declaration_tokens.size() +
+                                            graph.references_by_binding[binding].size();
+            return (value.name.size() - 1) * occurrences;
         };
-        const bool frequency_worthwhile = eligible.size() > default_first.size();
-        const std::string first_characters = frequency_worthwhile
-            ? ranked(default_first) : default_first;
-        const std::string continuation_characters = frequency_worthwhile
-            ? ranked(default_continuation) : default_continuation;
+        std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
+            if (eligible.size() <= 54)
+                return graph.references_by_binding[left].size() >
+                       graph.references_by_binding[right].size();
+            const std::size_t left_saving = estimated_saving(left);
+            const std::size_t right_saving = estimated_saving(right);
+            if (left_saving != right_saving) return left_saving > right_saving;
+            return graph.bindings[left].token < graph.bindings[right].token;
+        });
+        const JsBindingInterferenceGraph binding_interference{graph};
+
+        const JsNameAlphabet alphabet = build_js_frequency_alphabet(
+            tokens, function.first_token, function.last_token, eligible.size() > 54);
 
         std::vector<std::pair<std::string, std::size_t>> allocated_names;
         for (std::size_t binding_id : eligible) {
             const JsBinding& binding = graph.bindings[binding_id];
             std::string replacement;
             for (std::size_t candidate_index = 0;; ++candidate_index) {
-                replacement = js_short_name(candidate_index, first_characters,
-                                            continuation_characters);
+                replacement = js_short_name(candidate_index, alphabet.first,
+                                            alphabet.continuation);
                 if (occupied.count(replacement)) continue;
                 bool conflicts = false;
                 for (const auto& allocated : allocated_names) {
                     if (allocated.first != replacement) continue;
-                    if (binding_interference[binding_id].count(allocated.second)) {
+                    if (binding_interference.conflicts(binding_id, allocated.second)) {
                         conflicts = true;
                         break;
                     }
