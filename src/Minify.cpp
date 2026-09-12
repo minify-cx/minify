@@ -506,6 +506,7 @@ struct JsReference {
     JsReferenceAccess access;
     bool captured;
     bool parameter_initializer;
+    std::size_t capture_depth;
 };
 struct JsScope {
     JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
@@ -521,6 +522,7 @@ struct JsScopeGraph {
     std::vector<std::size_t> containing_function;
     std::vector<std::size_t> reference_at_token;
     std::vector<std::size_t> unresolved_references;
+    std::vector<std::vector<std::size_t>> captures_by_function;
 };
 
 bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
@@ -719,6 +721,7 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                            JsConcreteSyntax& syntax) {
     graph.references_by_binding.resize(graph.bindings.size());
     graph.reference_at_token.resize(tokens.size(), tokens.size());
+    graph.captures_by_function.resize(graph.scopes.size());
     std::unordered_set<std::size_t> declarations;
     std::vector<std::unordered_map<std::string_view, std::size_t>> bindings_by_name(graph.scopes.size());
     for (const auto& binding : graph.bindings) {
@@ -769,20 +772,30 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                  index + 2 < tokens.size() && tokens[index + 2].text == "=")
             access = JsReferenceAccess::ReadWrite;
         bool captured = false;
+        std::size_t capture_depth = 0;
         if (resolved_scope < graph.scopes.size() && containing != resolved_scope) {
             for (std::size_t scope = containing; scope != resolved_scope && scope != 0;
                  scope = graph.scopes[scope].parent) {
-                if (graph.scopes[scope].kind == JsScopeKind::Function) { captured = true; break; }
+                if (graph.scopes[scope].kind == JsScopeKind::Function) {
+                    captured = true;
+                    ++capture_depth;
+                }
             }
         }
         graph.references.push_back({index, containing, resolved, resolved_scope, access, captured,
-                                    syntax.parameter_initializer_tokens[index]});
+                                    syntax.parameter_initializer_tokens[index], capture_depth});
         graph.reference_at_token[index] = graph.references.size() - 1;
         if (index < syntax.identifier_roles.size() && role != JsIdentifierRole::ShorthandProperty)
             syntax.identifier_roles[index] = JsIdentifierRole::Reference;
-        if (resolved < graph.bindings.size())
+        if (resolved < graph.bindings.size()) {
             graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
-        else
+            if (captured) {
+                const std::size_t function = graph.containing_function[containing];
+                auto& captures = graph.captures_by_function[function];
+                if (std::find(captures.begin(), captures.end(), resolved) == captures.end())
+                    captures.push_back(resolved);
+            }
+        } else
             graph.unresolved_references.push_back(graph.references.size() - 1);
     }
 }
