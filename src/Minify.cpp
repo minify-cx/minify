@@ -625,8 +625,13 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             function.last_token > tokens.size() || !function.first_token) continue;
 
         bool unsafe = unit_dynamic[unit];
+        bool nested_dynamic = false;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
-            if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
+            if (unit_of_scope[graph.scope_at_token[i]] != unit) {
+                if (tokens[i].text == "eval" || tokens[i].text == "with")
+                    nested_dynamic = true;
+                continue;
+            }
             if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
                 (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
                 unsafe = true;
@@ -664,7 +669,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                     return graph.references[reference].captured;
                 });
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
-            if (supported && !captured && duplicates == 1 && !reserved.count(candidate.name) &&
+            if (supported && (!captured || !nested_dynamic) && duplicates == 1 &&
+                !reserved.count(candidate.name) &&
                 candidate.name.size() > 2)
                 eligible.push_back(binding);
             else
@@ -676,6 +682,14 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 reference.binding_scope >= graph.scopes.size() ||
                 unit_of_scope[reference.binding_scope] != unit)
                 occupied.insert(tokens[reference.token].text);
+        }
+        // A captured binding may be shortened only to a spelling absent from
+        // every descendant function. Otherwise a nested declaration could
+        // intercept the renamed reference.
+        for (std::size_t token = function.first_token; token < function.last_token; ++token) {
+            if (tokens[token].kind == JsTokenKind::Identifier &&
+                unit_of_scope[graph.scope_at_token[token]] != unit)
+                occupied.insert(tokens[token].text);
         }
         std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
             return graph.references_by_binding[left].size() >
