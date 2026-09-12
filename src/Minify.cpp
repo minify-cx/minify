@@ -929,7 +929,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
     std::vector<bool> block_braces;
     std::string last_token;
     std::vector<JsToken> tokens;
-    const bool collect_scope_tokens = input.find("function") != std::string::npos;
+    // Scope-aware rewriting is not part of the conservative default. Retain
+    // the shared token hooks for the future structured mode, but do not collect
+    // or apply a rename plan until that mode has a complete conformance-proven
+    // scope model.
+    const bool collect_scope_tokens = false;
     if (collect_scope_tokens) tokens.reserve(input.size() / 4);
     auto record_word_token = [&](const std::string& text, std::size_t begin) {
         if (collect_scope_tokens) tokens.push_back({text, begin, output.size()});
@@ -1329,25 +1333,6 @@ static bool minify_javascript(const std::string& input, std::string& output,
         before_semicolon_token != "{" &&
         before_semicolon_token != ";") {
         output.pop_back();
-    }
-    auto replacements = tokens.empty()
-        ? std::vector<JsReplacement>()
-        : plan_js_parameter_mangling(tokens);
-    std::sort(replacements.begin(), replacements.end(),
-              [](const JsReplacement& left, const JsReplacement& right) {
-                  return left.begin < right.begin;
-              });
-    if (!replacements.empty()) {
-        std::string transformed;
-        transformed.reserve(output.size());
-        std::size_t copied = 0;
-        for (const auto& replacement : replacements) {
-            transformed.append(output, copied, replacement.begin - copied);
-            transformed += replacement.text;
-            copied = replacement.end;
-        }
-        transformed.append(output, copied, std::string::npos);
-        output.swap(transformed);
     }
     error.clear();
     return true;

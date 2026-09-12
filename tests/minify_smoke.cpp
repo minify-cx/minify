@@ -166,8 +166,8 @@ int main() {
        "JavaScript non-quote escapes preserved");
     expect(minify::javascript(
         "function total(longLeft,longRight){return longLeft+longRight;}", out, err), err);
-    eq(out, "function total($,_){return $+_}",
-       "JavaScript simple parameter mangling");
+    eq(out, "function total(longLeft,longRight){return longLeft+longRight}",
+       "JavaScript conservative mode preserves parameter names");
     expect(minify::javascript(
         "function keep(longName){return {longName,value:longName}.longName;}", out, err), err);
     eq(out, "function keep(longName){return{longName,value:longName}.longName}",

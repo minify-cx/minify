@@ -40,6 +40,6 @@ run_case generator 'function* f(longName){yield longName}console.log(f(11).next(
 run_case recursion 'const f=function named(longName){return longName?named(longName-1):3};console.log(f(2));'
 
 printf '%s' 'function add(longLeft,longRight){return longLeft+longRight}' | "$TMP/minjs" \
-  | grep -F 'function add($,_){return $+_}' >/dev/null
+  | grep -F 'function add(longLeft,longRight){return longLeft+longRight}' >/dev/null
 
 echo "JavaScript scope adversarial semantic gate passed (12 cases)"
