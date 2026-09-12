@@ -710,9 +710,10 @@ bool html(const std::string& input, std::string& output, std::string& error) {
     return true;
 }
 
-// JavaScript minification is intentionally conservative. It removes comments
-// and redundant horizontal whitespace, but preserves every significant newline
-// so automatic-semicolon-insertion behavior cannot be changed.
+// JavaScript minification is intentionally conservative. It removes comments,
+// redundant horizontal whitespace, and line terminators at boundaries which
+// already carry an unambiguous statement/block delimiter. Other significant
+// line terminators remain available to automatic semicolon insertion.
 static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries) {
     output.clear();
@@ -734,10 +735,17 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     auto emit_pending = [&](char next) {
         if (pending_newline) {
-            // Keeping line terminators is intentionally conservative: ASI,
-            // `return`, `throw`, postfix ++/-- and future syntax can depend on
-            // their presence.
-            if (!output.empty() && output.back() != '\n') output.push_back('\n');
+            const bool delimited_boundary =
+                !output.empty() &&
+                (output.back() == ';' || output.back() == '{' ||
+                 last_token == "}block");
+            // A terminator after an explicit semicolon, an opening brace, or a
+            // statement block cannot supply ASI semantics. Preserve every
+            // other newline: restricted productions, postfix ++/-- and an
+            // expression continued by `(`, `[`, template or `/` remain
+            // deliberately conservative.
+            if (!delimited_boundary && !output.empty() && output.back() != '\n')
+                output.push_back('\n');
         } else if (pending_space && !output.empty() &&
                    ((word_char(output.back()) && word_char(next)) ||
                     (output.back() == '+' && next == '+') ||

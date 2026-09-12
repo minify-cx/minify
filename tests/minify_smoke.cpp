@@ -130,13 +130,21 @@ int main() {
     expect(out.find("<!--[if IE]>") != std::string::npos, "conditional comment removed");
 
     expect(minify::javascript("const  x = 1; // comment\nconst y = x + 2;\n", out, err), err);
+    eq(out, "const x=1;const y=x+2;", "JavaScript delimited newline removal");
     expect(out.find("// comment") == std::string::npos, "JS line comment retained");
-    expect(out.find('\n') != std::string::npos, "JS newline removed");
     expect(minify::javascript("const r = /https?:\\/\\/example\\.com/; /*x*/\nconst t=` a  b `;", out, err), err);
     expect(out.find("/https?:\\/\\/example\\.com/") != std::string::npos, "JS regex damaged");
     expect(out.find("` a  b `") != std::string::npos, "JS template damaged");
     expect(minify::javascript("return\n  value;", out, err), err);
+    eq(out, "return\nvalue;", "JavaScript restricted-production newline preservation");
     expect(out.find("return\n") != std::string::npos, "ASI-sensitive newline removed");
+    expect(minify::javascript("a\n(b);a\n[b];a\n/regex/.test(b);", out, err), err);
+    expect(out.find("a\n(b)") != std::string::npos &&
+           out.find("a\n[b]") != std::string::npos &&
+           out.find("a\n/regex/") != std::string::npos,
+           "JavaScript expression-continuation newlines stripped");
+    expect(minify::javascript("if(a){\nwork();\n}\nnext();", out, err), err);
+    eq(out, "if(a){work();}next();", "JavaScript block-boundary newline removal");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");
