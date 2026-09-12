@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -230,11 +231,19 @@ bool js_line_terminator_in(const std::string& input, std::size_t begin, std::siz
 }
 
 bool copy_template_literal(const std::string& input, std::size_t& i,
-                           std::string& output, std::string& error) {
-    struct Frame { bool expression; std::size_t braces; bool can_start_regex; };
+                           std::string& output, std::string& error,
+                           const std::function<void(JsTokenKind, std::size_t,
+                                                    std::size_t)>& record = {}) {
+    struct Frame {
+        bool expression;
+        std::size_t braces;
+        bool can_start_regex;
+        std::size_t segment_begin;
+    };
     std::vector<Frame> stack;
+    const std::size_t template_begin = i;
     output.push_back(input[i++]);
-    stack.push_back({false, 0, true});
+    stack.push_back({false, 0, true, template_begin});
     while (i < input.size()) {
         char c = input[i++];
         output.push_back(c);
@@ -242,10 +251,12 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
         if (!frame.expression) {
             if (c == '\\' && i < input.size()) output.push_back(input[i++]);
             else if (c == '`') {
+                if (record) record(JsTokenKind::Template, frame.segment_begin, i);
                 stack.pop_back();
                 if (stack.empty()) return true;
             } else if (c == '$' && i < input.size() && input[i] == '{') {
                 output.push_back(input[i++]);
+                if (record) record(JsTokenKind::Template, frame.segment_begin, i);
                 frame.expression = true;
                 frame.braces = 1;
                 frame.can_start_regex = true;
@@ -258,6 +269,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             continue;
         }
         if (c == '\'' || c == '"') {
+            const std::size_t begin = i - 1;
             const char quote = c;
             bool escaped = false;
             while (i < input.size()) {
@@ -266,9 +278,10 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                 else if (q == '\\') escaped = true;
                 else if (q == quote) break;
             }
+            if (record) record(JsTokenKind::String, begin, i);
             frame.can_start_regex = false;
         } else if (c == '`') {
-            stack.push_back({false, 0, true});
+            stack.push_back({false, 0, true, i - 1});
         } else if (c == '/' && i < input.size() && input[i] == '/') {
             output.push_back(input[i++]);
             while (i < input.size()) { char q=input[i++]; output.push_back(q); if (q=='\n'||q=='\r') break; }
@@ -278,6 +291,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             while (i < input.size()) { char q=input[i++]; output.push_back(q); if (q=='*'&&i<input.size()&&input[i]=='/') { output.push_back(input[i++]); break; } }
             // A block comment leaves the regex context unchanged.
         } else if (c == '/' && frame.can_start_regex) {
+            const std::size_t begin = i - 1;
             // A regular-expression literal is copied verbatim so that `//`,
             // `{`, `}` and backticks inside it cannot corrupt expression or
             // template frame state.
@@ -294,6 +308,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             if (!closed) { error = "unterminated JavaScript regular expression"; output.clear(); return false; }
             while (i < input.size() && std::isalpha(static_cast<unsigned char>(input[i])))
                 output.push_back(input[i++]);
+            if (record) record(JsTokenKind::Regex, begin, i);
             frame.can_start_regex = false;
         } else if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             const std::size_t begin = i - 1;
@@ -309,7 +324,9 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             };
             frame.can_start_regex =
                 prefix_words.count(input.substr(begin, i - begin)) != 0;
+            if (record) record(JsTokenKind::Identifier, begin, i);
         } else if (std::isdigit(static_cast<unsigned char>(c))) {
+            const std::size_t begin = i - 1;
             bool exponent = false;
             while (i < input.size()) {
                 const unsigned char u = static_cast<unsigned char>(input[i]);
@@ -328,19 +345,24 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                 }
                 break;
             }
+            if (record) record(JsTokenKind::Number, begin, i);
             frame.can_start_regex = false;
         } else if (c == '{') {
+            if (record) record(JsTokenKind::Punctuator, i - 1, i);
             ++frame.braces;
             frame.can_start_regex = true;
         } else if (c == '}' && --frame.braces == 0) {
             frame.expression = false;
             frame.can_start_regex = false;
+            frame.segment_begin = i - 1;
         } else if (c == ';' || c == ',' || c == ':' || c == '(' || c == '[' ||
                    c == '=' || c == '!' || c == '?' || c == '&' || c == '|' ||
                    c == '+' || c == '-' || c == '*' || c == '%' || c == '<' ||
                    c == '>' || c == '~' || c == '^') {
+            if (record) record(JsTokenKind::Punctuator, i - 1, i);
             frame.can_start_regex = true;
         } else {
+            if (record) record(JsTokenKind::Punctuator, i - 1, i);
             frame.can_start_regex = false;
         }
     }
@@ -1131,10 +1153,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         }
 
         if (c == '`') {
-            const std::size_t begin = i;
             emit_pending(c);
-            if (!copy_template_literal(input, i, output, error)) return false;
-            record_token(JsTokenKind::Template, begin, i);
+            if (!copy_template_literal(input, i, output, error, record_token)) return false;
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";

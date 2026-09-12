@@ -651,7 +651,7 @@ int main() {
 
     const std::string policy_source =
         "const value = {number: 0xff, text: 'x', match: /x+/giu, "
-        "template: `raw ${value}`};";
+        "template: `raw ${value + `${/}/.test(text) ? {x: 1}.x : 0}`}`};";
     std::string conservative, structured, aggressive;
     expect(minify::javascript(policy_source, conservative, err,
                               {minify::OptimizationLevel::Conservative}), err);
