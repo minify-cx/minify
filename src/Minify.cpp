@@ -135,6 +135,60 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     return syntax;
 }
 
+enum class JsScopeKind { Script, Module, Function, Block, Class, Catch };
+struct JsBinding { std::string name; std::size_t token; };
+struct JsReference { std::size_t token; std::size_t scope; std::size_t binding_scope; };
+struct JsScope {
+    JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
+    bool dynamic_lookup = false; std::vector<JsBinding> bindings;
+};
+struct JsScopeGraph {
+    std::vector<JsScope> scopes;
+    std::vector<JsReference> references;
+    std::vector<std::size_t> scope_at_token;
+    std::vector<std::vector<std::size_t>> references_by_binding_scope;
+};
+
+JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
+    const bool module = std::any_of(tokens.begin(), tokens.end(), [](const JsToken& token) {
+        return token.text == "import" || token.text == "export";
+    });
+    JsScopeGraph graph;
+    graph.scope_at_token.resize(tokens.size(), 0);
+    graph.scopes.push_back({module ? JsScopeKind::Module : JsScopeKind::Script, 0, 0,
+                            tokens.size(), false, {}});
+    std::vector<std::size_t> scopes{0};
+    JsScopeKind pending = JsScopeKind::Block;
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        graph.scope_at_token[index] = scopes.back();
+        const std::string& text = tokens[index].text;
+        if (text == "function") pending = JsScopeKind::Function;
+        else if (text == "class") pending = JsScopeKind::Class;
+        else if (text == "catch") pending = JsScopeKind::Catch;
+        if (text == "eval" || text == "with") graph.scopes[scopes.back()].dynamic_lookup = true;
+        if (text == "{") {
+            graph.scopes.push_back({pending, scopes.back(), index, tokens.size(), false, {}});
+            scopes.push_back(graph.scopes.size() - 1);
+            graph.scope_at_token[index] = scopes.back();
+            if (pending == JsScopeKind::Function && index && tokens[index - 1].text == ")") {
+                std::size_t depth = 1, open = index - 1;
+                while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
+                if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
+                    if (tokens[p].kind == JsTokenKind::Identifier && (p == open + 1 || tokens[p - 1].text == ","))
+                        graph.scopes.back().bindings.push_back({tokens[p].text, p});
+            }
+            pending = JsScopeKind::Block;
+        } else if (text == "}" && scopes.size() > 1) {
+            graph.scopes[scopes.back()].last_token = index + 1; scopes.pop_back();
+        } else if (index && tokens[index].kind == JsTokenKind::Identifier) {
+            const std::string& previous = tokens[index - 1].text;
+            if (previous == "var" || previous == "let" || previous == "const" || previous == "function" || previous == "class" || previous == "catch")
+                graph.scopes[scopes.back()].bindings.push_back({text, index});
+        }
+    }
+    return graph;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1474,6 +1528,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
     }
     if (recorder) {
         [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
+        [[maybe_unused]] const JsScopeGraph scopes = build_js_scope_graph(tokens);
     }
     error.clear();
     return true;
