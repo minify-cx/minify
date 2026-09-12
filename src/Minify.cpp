@@ -1107,6 +1107,16 @@ std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
             ? static_cast<unsigned>(syntax.identifier_roles[token]) : 0;
         signature += "K" + std::to_string(role) + ":" + std::string(tokens[token].text) + ";";
     }
+    for (std::size_t reference = 0; reference < graph.references.size(); ++reference) {
+        const JsReference& value = graph.references[reference];
+        signature += "J" + std::to_string(value.token) + ":";
+        if (value.binding < graph.bindings.size())
+            signature += std::to_string(value.binding);
+        else
+            signature += "U";
+        signature += value.access == JsReferenceAccess::Read ? "r;"
+            : value.access == JsReferenceAccess::Write ? "w;" : "x;";
+    }
     return signature;
 }
 

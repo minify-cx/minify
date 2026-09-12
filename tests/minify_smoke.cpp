@@ -770,6 +770,8 @@ int main() {
     expect(original_signature.find("F")!=std::string::npos&&original_signature.find("I")!=std::string::npos,"IR function and initialization inventory");
     expect(minify::javascript_ir_signature("import x from'x';export{x};function f(){eval('x')}",original_signature,err),err);
     expect(original_signature.find("M")!=std::string::npos&&original_signature.find("B")!=std::string::npos,"IR module and dynamic-scope inventory");
+    expect(minify::javascript_binding_signature("function f(longName){longName+=external;return()=>longName}",original_signature,err),err);
+    expect(original_signature.find("J")!=std::string::npos,"IR reference-resolution inventory");
     expect(minify::javascript("while(condition);for(;;);do;while(condition);",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"while(condition);for(;;);do;while(condition);","semantic printer preserves loop empty statements");
     expect(minify::javascript("function f(){return\n{x:1}}\n/a/.test(x)",structured,err,{minify::OptimizationLevel::Structured}),err);
