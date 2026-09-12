@@ -989,7 +989,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             if (escaped) escaped = false;
             else if (q == '\\') escaped = true;
             else if (q == quote) {
-                output += shorten_js_string(input.substr(begin, i - begin));
+                const std::string token = input.substr(begin, i - begin);
+                output += preserve_jsx_boundaries ? token : shorten_js_string(token);
                 return true;
             }
         }
@@ -1062,7 +1063,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 (following_char == '?' && following + 1 < input.size() &&
                  input[following + 1] == '.');
             const bool boolean_expression =
-                boolean_literal && !binds_more_tightly && last_token != "new" &&
+                boolean_literal && !preserve_jsx_boundaries &&
+                !binds_more_tightly && last_token != "new" &&
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
             if (boolean_expression) output += word == "true" ? "!0" : "!1";
@@ -1118,7 +1120,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 }
                 break;
             }
-            const std::string number = shorten_js_integer(input.substr(begin, i - begin));
+            const std::string raw_number = input.substr(begin, i - begin);
+            const std::string number = preserve_jsx_boundaries
+                ? raw_number : shorten_js_integer(raw_number);
             emit_pending(number.front());
             output += number;
             pending_control_paren = false;
@@ -1311,7 +1315,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             // A statement terminator is implied before a closing brace. Keep
             // semicolons which form an empty control/labelled statement; all
             // other immediately preceding semicolons are redundant.
-            if (!output.empty() && output.back() == ';' &&
+            if (!preserve_jsx_boundaries && !output.empty() && output.back() == ';' &&
                 before_semicolon_token != ")control" &&
                 before_semicolon_token != ":" &&
                 before_semicolon_token != "{" &&
@@ -1355,7 +1359,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
     }
 
     while (!output.empty() && ws(output.back())) output.pop_back();
-    if (!output.empty() && output.back() == ';' &&
+    if (!preserve_jsx_boundaries && !output.empty() && output.back() == ';' &&
         before_semicolon_token != ")control" &&
         before_semicolon_token != ":" &&
         before_semicolon_token != "{" &&

@@ -547,6 +547,9 @@ int main() {
     expect(out.find("const el=") != std::string::npos, "JS around JSX was not minified");
     expect(out.find(" hello  world ") != std::string::npos, "JSX text whitespace changed");
     expect(out.find("{value+1}") != std::string::npos, "JSX expression was not minified");
+    expect(minify::jsx("const x = <div>{ true ? 0xff : 'value' }</div>;", out, err), err);
+    eq(out, "const x=<div>{true?0xff:'value'}</div>;",
+       "JSX preserves non-trivia JavaScript tokens");
     expect(minify::jsx("const x=<><span>A</span><span>{ b + 1 }</span></>;", out, err), err);
     expect(out.find("{b+1}") != std::string::npos, "fragment JSX expression damaged");
     expect(!minify::jsx("const x=<div>{a+1</div>;", out, err), "unterminated JSX expression accepted");
