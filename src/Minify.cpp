@@ -189,6 +189,30 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     return graph;
 }
 
+void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& tokens) {
+    graph.references_by_binding_scope.resize(graph.scopes.size());
+    std::unordered_set<std::size_t> declarations;
+    for (const auto& scope : graph.scopes) for (const auto& binding : scope.bindings) declarations.insert(binding.token);
+    static const std::unordered_set<std::string> non_references = {
+        "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
+    };
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        if (tokens[index].kind != JsTokenKind::Identifier || declarations.count(index) || non_references.count(tokens[index].text)) continue;
+        const std::string previous = index ? tokens[index - 1].text : std::string();
+        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
+        if (previous == "." || previous == "#" || (next == ":" && (previous == "{" || previous == ","))) continue;
+        const std::size_t containing = graph.scope_at_token[index];
+        std::size_t resolved = tokens.size();
+        for (std::size_t scope = containing;; scope = graph.scopes[scope].parent) {
+            auto found = std::find_if(graph.scopes[scope].bindings.begin(), graph.scopes[scope].bindings.end(), [&](const JsBinding& b){ return b.name == tokens[index].text; });
+            if (found != graph.scopes[scope].bindings.end()) { resolved = scope; break; }
+            if (!scope) break;
+        }
+        graph.references.push_back({index, containing, resolved});
+        if (resolved < graph.scopes.size()) graph.references_by_binding_scope[resolved].push_back(graph.references.size() - 1);
+    }
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1528,7 +1552,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
     }
     if (recorder) {
         [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
-        [[maybe_unused]] const JsScopeGraph scopes = build_js_scope_graph(tokens);
+        JsScopeGraph scopes = build_js_scope_graph(tokens);
+        resolve_js_references(scopes, tokens);
     }
     error.clear();
     return true;
