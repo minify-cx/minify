@@ -716,6 +716,8 @@ int main() {
     eq(structured,"function keep($){return{longName:$}}","structured shorthand-aware printing");
     expect(minify::javascript("function keep(longName){return {...longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{...$}}","structured object spread reference renaming");
+    expect(minify::javascript("const total=(longValue)=>{const doubledValue=longValue*2;return doubledValue;};",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const total=($)=>{const _=$*2;return _}","structured block arrow scope safety");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);

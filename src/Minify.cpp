@@ -356,18 +356,31 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             const bool creates_scope = tokens[index].brace_kind != JsBraceKind::Object;
             brace_creates_scope.push_back(creates_scope);
             if (!creates_scope) continue;
-            graph.scopes.push_back({pending, scopes.back(), index, tokens.size(), false, {}});
+            const bool arrow_body = index >= 2 && tokens[index - 1].text == ">" &&
+                                    tokens[index - 2].text == "=";
+            const JsScopeKind opening_kind = arrow_body ? JsScopeKind::Function : pending;
+            graph.scopes.push_back({opening_kind, scopes.back(), index, tokens.size(), false, {}});
             scopes.push_back(graph.scopes.size() - 1);
             graph.scope_at_token[index] = scopes.back();
-            if (pending == JsScopeKind::Function && index && tokens[index - 1].text == ")") {
-                std::size_t depth = 1, open = index - 1;
+            if ((opening_kind == JsScopeKind::Function && index && tokens[index - 1].text == ")") ||
+                arrow_body) {
+                std::size_t close = arrow_body ? index - 3 : index - 1;
+                if (arrow_body && tokens[close].text != ")") {
+                    if (tokens[close].kind == JsTokenKind::Identifier) {
+                        graph.scope_at_token[close] = scopes.back();
+                        add_binding(scopes.back(), close, JsBindingKind::Parameter);
+                    }
+                    pending = JsScopeKind::Block;
+                    continue;
+                }
+                std::size_t depth = 1, open = close;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
                 if (!depth) {
-                    for (std::size_t p = open + 1; p < index; ++p)
+                    for (std::size_t p = open + 1; p < close; ++p)
                         graph.scope_at_token[p] = scopes.back();
                     unsigned nested = 0;
                     bool binding_position = true;
-                    for (std::size_t p = open + 1; p + 1 < index; ++p) {
+                    for (std::size_t p = open + 1; p < close; ++p) {
                         const std::string& parameter = tokens[p].text;
                         if (binding_position && nested == 0) {
                             if (tokens[p].kind == JsTokenKind::Identifier)
@@ -1789,6 +1802,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
     bool pending_class_brace = false;
     bool pending_class_expression = false;
     bool pending_function_brace = false;
+    bool pending_arrow_brace = false;
     bool pending_function_expression = false;
     bool pending_async_expression = false;
 
@@ -2098,7 +2112,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         if (c == '{') {
             emit_pending(c);
             bool is_block = false;
-            if (pending_class_brace || pending_function_brace ||
+            if (pending_class_brace || pending_function_brace || pending_arrow_brace ||
                 last_token.empty() || last_token == ";" || last_token == "}block" ||
                 last_token == ")" || last_token == ")control" ||
                 last_token == "else" || last_token == "do" ||
@@ -2144,6 +2158,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             pending_class_expression = false;
             pending_function_brace = false;
             pending_function_expression = false;
+            pending_arrow_brace = false;
             pending_async_expression = false;
             pending_control_paren = false;
             can_start_regex = true;
@@ -2178,6 +2193,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         if (preserve_jsx_boundaries && c == '/' && i + 1 < input.size() &&
             input[i + 1] == '>') output.push_back(' ');
         pending_control_paren = false;
+        pending_arrow_brace = c == '>' && last_token == "=";
 
         if (c == ';') before_semicolon_token = last_token;
 
