@@ -649,7 +649,9 @@ int main() {
     expect(!minify::format_for_extension(".ts", f), "TypeScript source extension unexpectedly supported");
     expect(!minify::format_for_extension(".tsx", f), "TSX source extension unexpectedly supported");
 
-    const std::string policy_source = "const value = true;";
+    const std::string policy_source =
+        "const value = {number: 0xff, text: 'x', match: /x+/giu, "
+        "template: `raw ${value}`};";
     std::string conservative, structured, aggressive;
     expect(minify::javascript(policy_source, conservative, err,
                               {minify::OptimizationLevel::Conservative}), err);

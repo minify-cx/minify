@@ -71,7 +71,10 @@ std::string shorten_js_string(const std::string& token) {
     return token.front() == '\'' ? single : dual;
 }
 
+enum class JsTokenKind { Identifier, Punctuator, Number, String, Regex, Template };
+
 struct JsToken {
+    JsTokenKind kind;
     std::string text;
     std::size_t begin;
     std::size_t end;
@@ -916,7 +919,8 @@ bool html(const std::string& input, std::string& output, std::string& error) {
 // already carry an unambiguous statement/block delimiter. Other significant
 // line terminators remain available to automatic semicolon insertion.
 static bool minify_javascript(const std::string& input, std::string& output,
-                              std::string& error, bool preserve_jsx_boundaries) {
+                              std::string& error, bool preserve_jsx_boundaries,
+                              bool collect_tokens = false) {
     output.clear();
     output.reserve(input.size());
 
@@ -928,19 +932,14 @@ static bool minify_javascript(const std::string& input, std::string& output,
     std::vector<bool> control_parens;
     std::vector<bool> block_braces;
     std::string last_token;
-    std::vector<JsToken> tokens;
-    // Scope-aware rewriting is not part of the conservative default. Retain
-    // the shared token hooks for the future structured mode, but do not collect
-    // or apply a rename plan until that mode has a complete conformance-proven
-    // scope model.
-    const bool collect_scope_tokens = false;
-    if (collect_scope_tokens) tokens.reserve(input.size() / 4);
-    auto record_word_token = [&](const std::string& text, std::size_t begin) {
-        if (collect_scope_tokens) tokens.push_back({text, begin, output.size()});
-    };
-    auto record_punct_token = [&](char text, std::size_t begin) {
-        if (collect_scope_tokens)
-            tokens.push_back({std::string(1, text), begin, output.size()});
+    [[maybe_unused]] std::vector<JsToken> tokens;
+    // Structured and aggressive policy requests exercise the same non-mutating
+    // inventory while those modes intentionally retain conservative output.
+    // Positions refer to the source, never to a partially rewritten output.
+    if (collect_tokens) tokens.reserve(input.size() / 4);
+    auto record_token = [&](JsTokenKind kind, std::size_t begin, std::size_t end) {
+        if (collect_tokens)
+            tokens.push_back({kind, input.substr(begin, end - begin), begin, end});
     };
     std::string before_semicolon_token;
     bool pending_class_brace = false;
@@ -1069,9 +1068,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             emit_pending(boolean_expression ? '!' : word.front());
             if (boolean_expression) output += word == "true" ? "!0" : "!1";
             else {
-                const std::size_t token_begin = output.size();
                 output += word;
-                record_word_token(word, token_begin);
+                record_token(JsTokenKind::Identifier, begin, i);
             }
 
             const bool was_pending_control_paren = pending_control_paren;
@@ -1125,6 +1123,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 ? raw_number : shorten_js_integer(raw_number);
             emit_pending(number.front());
             output += number;
+            record_token(JsTokenKind::Number, begin, i);
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
@@ -1132,8 +1131,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
         }
 
         if (c == '`') {
+            const std::size_t begin = i;
             emit_pending(c);
             if (!copy_template_literal(input, i, output, error)) return false;
+            record_token(JsTokenKind::Template, begin, i);
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
@@ -1141,7 +1142,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
         }
 
         if (c == '\'' || c == '"') {
+            const std::size_t begin = i;
             if (!copy_quoted(i, c)) return false;
+            record_token(JsTokenKind::String, begin, i);
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
@@ -1150,9 +1153,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == '(') {
             emit_pending(c);
-            const std::size_t token_begin = output.size();
             output.push_back(c);
-            record_punct_token('(', token_begin);
+            record_token(JsTokenKind::Punctuator, i, i + 1);
             control_parens.push_back(pending_control_paren);
             pending_control_paren = false;
             can_start_regex = true;
@@ -1163,9 +1165,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == ')') {
             emit_pending(c);
-            const std::size_t token_begin = output.size();
             output.push_back(c);
-            record_punct_token(')', token_begin);
+            record_token(JsTokenKind::Punctuator, i, i + 1);
             const bool was_control = !control_parens.empty() && control_parens.back();
             if (!control_parens.empty()) control_parens.pop_back();
             pending_control_paren = false;
@@ -1209,6 +1210,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == '/' && can_start_regex && i + 1 < input.size() &&
             (output.empty() || output.back() != '<')) {
+            const std::size_t begin = i;
             emit_pending(c);
             output.push_back(input[i++]);
             bool escaped = false;
@@ -1242,6 +1244,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             while (i < input.size() &&
                    std::isalpha(static_cast<unsigned char>(input[i])))
                 output.push_back(input[i++]);
+            record_token(JsTokenKind::Regex, begin, i);
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
@@ -1295,9 +1298,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 (pending_class_brace && pending_class_expression) ||
                 (pending_function_brace && pending_function_expression);
             block_braces.push_back(expression_body ? false : is_block);
-            const std::size_t token_begin = output.size();
             output.push_back(c);
-            record_punct_token('{', token_begin);
+            record_token(JsTokenKind::Punctuator, i, i + 1);
             pending_class_brace = false;
             pending_class_expression = false;
             pending_function_brace = false;
@@ -1323,9 +1325,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 before_semicolon_token != "else") {
                 output.pop_back();
             }
-            const std::size_t token_begin = output.size();
             output.push_back(c);
-            record_punct_token('}', token_begin);
+            record_token(JsTokenKind::Punctuator, i, i + 1);
             const bool was_block = block_braces.empty() ? true : block_braces.back();
             if (!block_braces.empty()) block_braces.pop_back();
             pending_control_paren = false;
@@ -1336,9 +1337,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         }
 
         emit_pending(c);
-        const std::size_t token_begin = output.size();
         output.push_back(c);
-        record_punct_token(c, token_begin);
+        record_token(JsTokenKind::Punctuator, i, i + 1);
         pending_control_paren = false;
 
         if (c == ';') before_semicolon_token = last_token;
@@ -1377,8 +1377,8 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
 
 bool javascript(const std::string& input, std::string& output, std::string& error,
                 const Options& options) {
-    (void)options;
-    return javascript(input, output, error);
+    return minify_javascript(input, output, error, false,
+                             options.optimization != OptimizationLevel::Conservative);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
