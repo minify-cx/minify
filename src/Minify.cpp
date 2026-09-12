@@ -136,6 +136,13 @@ struct JsRewriteResult {
     bool smaller = false;
 };
 
+bool js_rewrite_is_smaller(const std::vector<JsToken>& tokens,
+                           std::size_t first, std::size_t last,
+                           std::string_view replacement) {
+    return first < tokens.size() && last < tokens.size() && first <= last &&
+           replacement.size() < tokens[last].end - tokens[first].begin;
+}
+
 enum class JsValueKind { Unknown, Undefined, Null, Boolean, Number, BigInt, String };
 enum class JsTruthiness { Unknown, Falsy, Truthy };
 enum class JsInvocationKind { None, Call, OptionalCall, Construct };
@@ -1476,6 +1483,9 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
         } else if (op == "*") {
             if (right && left > 9007199254740991ULL / right) continue;
             result = left * right;
+        } else if (op == "/") {
+            if (!right || left % right) continue;
+            result = left / right;
         } else if (op == "%") {
             if (!right) continue;
             result = left % right;
@@ -1494,13 +1504,13 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
         } else if (op == "<" || op == ">") {
             const bool comparison = op == "<" ? left < right : left > right;
             const std::string folded = comparison ? "!0" : "!1";
-            if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)
+            if (js_rewrite_is_smaller(tokens, i + 1, i + 3, folded))
                 replacements.push_back({tokens[i + 1].begin, tokens[i + 3].end, folded});
             i += 4;
             continue;
         } else continue;
         const std::string folded = std::to_string(result);
-        if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)
+        if (js_rewrite_is_smaller(tokens, i + 1, i + 3, folded))
             replacements.push_back({tokens[i + 1].begin, tokens[i + 3].end, folded});
         i += 4;
     }

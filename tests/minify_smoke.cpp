@@ -760,6 +760,8 @@ int main() {
     eq(aggressive,"const n=(230)","aggressive exact integer constant folding");
     expect(minify::javascript("const a=(100%7);const b=(255&15);const c=(8|3);const d=(7^3);const e=(1<2);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const a=(2);const b=(15);const c=(11);const d=(4);const e=(!0)","aggressive exact integer operator folding");
+    expect(minify::javascript("const a=(100/4);const b=(100/3);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const a=(25);const b=(100/3)","aggressive costed exact division compression");
     expect(minify::javascript("function f(){return undefined;}function g(undefined){return undefined;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return void 0}function g($){return $}","aggressive unresolved undefined compression");
     expect(minify::javascript("undefined.value;undefined();undefined?.value;undefined=1;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
