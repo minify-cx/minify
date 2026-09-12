@@ -385,6 +385,12 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                         if (binding_position && nested == 0) {
                             if (tokens[p].kind == JsTokenKind::Identifier)
                                 add_binding(scopes.back(), p, JsBindingKind::Parameter);
+                            else if (p + 3 < close && tokens[p].text == "." &&
+                                     tokens[p + 1].text == "." && tokens[p + 2].text == "." &&
+                                     tokens[p + 3].kind == JsTokenKind::Identifier) {
+                                graph.scope_at_token[p + 3] = scopes.back();
+                                add_binding(scopes.back(), p + 3, JsBindingKind::Parameter);
+                            }
                             binding_position = false;
                         }
                         if (parameter == "(" || parameter == "[" || parameter == "{") ++nested;
