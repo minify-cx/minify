@@ -356,6 +356,18 @@ std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToke
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 5 < tokens.size(); ++i) {
+        if (tokens[i].text != "var" || tokens[i + 1].kind != JsTokenKind::Identifier ||
+            tokens[i + 2].text != ";" || tokens[i + 3].text != "var" ||
+            tokens[i + 4].kind != JsTokenKind::Identifier || tokens[i + 5].text != ";") continue;
+        replacements.push_back({tokens[i + 2].begin, tokens[i + 3].end, ","});
+        i += 3;
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1714,6 +1726,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 append(plan_js_constant_conditionals(tokens));
                 append(plan_js_unreachable_debuggers(tokens));
                 append(plan_js_compound_assignments(tokens, scopes));
+                append(plan_js_var_declaration_joins(tokens));
                 if (!replacements.empty()) {
                     const std::string rewritten = apply_js_replacements(input, std::move(replacements));
                     return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,

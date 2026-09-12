@@ -724,6 +724,8 @@ int main() {
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
+    expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(){var first,second;return 1}","aggressive adjacent var declaration join");
 
 
     std::cout << "Standalone minifier smoke test passed\n";
