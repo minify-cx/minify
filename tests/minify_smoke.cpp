@@ -716,6 +716,10 @@ int main() {
     eq(aggressive,"const n=230","aggressive exact integer constant folding");
     expect(minify::javascript("const n=(9007199254740991+1);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=(9007199254740991+1)","aggressive unsafe integer fold exclusion");
+    expect(minify::javascript("const n=true?123:456;const s=false?'a':'b';",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const n=123;const s='b'","aggressive constant conditional simplification");
+    expect(minify::javascript("const n=true?sideEffect():456;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const n=!0?sideEffect():456","aggressive effectful conditional exclusion");
 
 
     std::cout << "Standalone minifier smoke test passed\n";
