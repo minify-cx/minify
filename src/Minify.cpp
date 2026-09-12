@@ -1009,7 +1009,28 @@ static bool minify_javascript(const std::string& input, std::string& output,
     static const std::unordered_set<std::string> boolean_expression_prefixes = {
         "(", "[", "=", "!", "?", ":", "&", "|", "+", "-", "*", "%",
         "<", ">", "/", "return", "throw", "case", "delete", "void",
-        "typeof", "new", "in", "instanceof", "yield", "await"
+        "typeof", "in", "instanceof", "yield", "await"
+    };
+
+    auto next_nontrivia = [&](std::size_t position) {
+        while (position < input.size()) {
+            if (ws(input[position])) {
+                ++position;
+            } else if (position + 1 < input.size() && input[position] == '/' &&
+                       input[position + 1] == '/') {
+                position += 2;
+                while (position < input.size() && input[position] != '\n' &&
+                       input[position] != '\r') ++position;
+            } else if (position + 1 < input.size() && input[position] == '/' &&
+                       input[position + 1] == '*') {
+                const auto close = input.find("*/", position + 2);
+                if (close == std::string::npos) return input.size();
+                position = close + 2;
+            } else {
+                break;
+            }
+        }
+        return position;
     };
 
     for (std::size_t i = 0; i < input.size();) {
@@ -1033,8 +1054,15 @@ static bool minify_javascript(const std::string& input, std::string& output,
             }
             const std::string word = input.substr(begin, i - begin);
             const bool boolean_literal = word == "true" || word == "false";
+            const std::size_t following = boolean_literal ? next_nontrivia(i) : input.size();
+            const char following_char = following < input.size() ? input[following] : '\0';
+            const bool binds_more_tightly =
+                following_char == '.' || following_char == '[' ||
+                following_char == '(' || following_char == '`' ||
+                (following_char == '?' && following + 1 < input.size() &&
+                 input[following + 1] == '.');
             const bool boolean_expression =
-                boolean_literal &&
+                boolean_literal && !binds_more_tightly && last_token != "new" &&
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
             if (boolean_expression) output += word == "true" ? "!0" : "!1";

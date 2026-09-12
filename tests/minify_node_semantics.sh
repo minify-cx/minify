@@ -35,6 +35,7 @@ run_case templates 'const x=2; console.log(`a ${x > 1 ? `b ${x}` : "c"}`);'
 run_case class_fields 'class A{#x=2;static y=3;get z(){return this.#x}} console.log(new A().z+A.y);'
 run_case optional 'const x={a:{b:2}}; console.log(x?.a?.b ?? 0);'
 run_case bigint 'console.log(String(12n+1n));'
+run_case boolean_members 'console.log(true.toString(),false["valueOf"](),new Boolean(true));'
 run_case control_regex "let x=true,s='https://x'; if(x) /https?:\\/\\//.test(s) && console.log('yes');"
 run_case regex_after_block "let s='https://x'; if(false){} /https?:\\/\\//.test(s)&&console.log('yes');"
 run_case regex_after_function "let s='https://x'; function f(){} /https?:\\/\\//.test(s)&&console.log('yes');"

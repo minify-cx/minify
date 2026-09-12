@@ -158,6 +158,9 @@ int main() {
     expect(minify::javascript("const x={true:1,false(){return false}};x.true;", out, err), err);
     eq(out, "const x={true:1,false(){return!1}};x.true",
        "JavaScript boolean property names preserved");
+    expect(minify::javascript("true.toString();false['valueOf']();new true;", out, err), err);
+    eq(out, "true.toString();false['valueOf']();new true",
+       "JavaScript boolean precedence boundaries preserved");
     expect(minify::javascript("const a=0xeac7,b=0b111111,c=0o17,d=0xffffffffffffffffn;", out, err), err);
     eq(out, "const a=60103,b=63,c=15,d=0xffffffffffffffffn",
        "JavaScript radix integer shortening");
