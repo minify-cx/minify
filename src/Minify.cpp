@@ -1196,7 +1196,7 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
 
 std::vector<JsReplacement> plan_js_unused_local_vars(
     const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
-    const JsSemanticFacts& facts) {
+    const JsSemanticFacts& facts, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
     for (std::size_t binding_id = 0; binding_id < graph.bindings.size(); ++binding_id) {
         const JsBinding& binding = graph.bindings[binding_id];
@@ -1207,6 +1207,12 @@ std::vector<JsReplacement> plan_js_unused_local_vars(
             continue;
         const std::size_t keyword = binding.token - 1;
         if (tokens[keyword].text != "var") continue;
+        const std::size_t node = keyword < syntax.node_at_token.size()
+            ? syntax.node_at_token[keyword] : syntax.nodes.size();
+        const std::size_t parent = node < syntax.nodes.size()
+            ? syntax.nodes[node].parent : syntax.nodes.size();
+        if (parent >= syntax.nodes.size() ||
+            syntax.nodes[parent].role != JsGroupRole::Block) continue;
         std::size_t end = binding.token + 1;
         if (end < tokens.size() && tokens[end].text == ";") {
             replacements.push_back({tokens[keyword].begin, tokens[end].end, ""});
@@ -2683,7 +2689,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
                 auto unused_vars = pass_enabled(JavaScriptOptimizationPass::UnusedBinding)
-                    ? plan_js_unused_local_vars(tokens, scopes, facts)
+                    ? plan_js_unused_local_vars(tokens, scopes, facts, syntax)
                     : std::vector<JsReplacement>{};
                 if (!unused_vars.empty()) append(std::move(unused_vars));
                 else if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))

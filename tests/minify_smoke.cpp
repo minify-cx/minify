@@ -779,6 +779,8 @@ int main() {
     eq(aggressive,"function f(){return 7}","aggressive unused pure local var elimination");
     expect(minify::javascript("function f(){var unusedValue=sideEffect();return 7;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){var $=sideEffect();return 7}","aggressive effectful unused initializer preservation");
+    expect(minify::javascript("function f(items){for(var indexValue=0;indexValue<items.length;indexValue++)use(items[indexValue]);}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(_){for(var $=0;$<_.length;$++)use(_[$])}","aggressive for initializer preservation");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
     minify::Options bisect_options(minify::OptimizationLevel::Aggressive);
