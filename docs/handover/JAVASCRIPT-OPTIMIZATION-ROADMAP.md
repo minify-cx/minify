@@ -120,6 +120,20 @@ The sequence is intentionally incremental. A later checkpoint may be split, but
 scope, parser and conformance boundaries must not be combined merely to reduce
 the apparent number of steps.
 
+## Optimizer foundation phase 1 — 2026-09-12
+
+The first post-benchmark foundation tranche is complete and recorded in
+`docs/evidence/javascript-optimizer-foundation-phase-1.md`. It adds authoritative
+identifier roles, scanner-retained brace roles, navigable delimiter structure,
+binding identities, reference access/capture facts, dynamic-scope propagation,
+transactional rewrites, per-pass controls and a 36-output real-bundle gate.
+
+The tranche deliberately stops short of calling the optimizer foundation
+complete. A full expression/statement parser, precedence-aware optimized
+printer, complete binding-pattern and module coverage, control-flow graph,
+effect/escape analysis and frequency-weighted allocator remain required before
+comprehensive structured mangling is activated.
+
 ## Aggressive checkpoint execution — 2026-09-12
 
 Checkpoints 21–30 activate a separately named, CLI/API opt-in aggressive layer.
