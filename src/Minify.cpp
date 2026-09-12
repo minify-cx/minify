@@ -258,13 +258,23 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
         graph.bindings.push_back({tokens[token].text, token, scope, kind});
         graph.scopes[scope].bindings.push_back(binding);
     };
+    auto mark_dynamic_function = [&](std::size_t scope) {
+        for (;;) {
+            graph.scopes[scope].dynamic_lookup = true;
+            if (graph.scopes[scope].kind == JsScopeKind::Function || scope == 0) break;
+            scope = graph.scopes[scope].parent;
+        }
+    };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         graph.scope_at_token[index] = scopes.back();
         const std::string& text = tokens[index].text;
         if (text == "function") pending = JsScopeKind::Function;
         else if (text == "class") pending = JsScopeKind::Class;
         else if (text == "catch") pending = JsScopeKind::Catch;
-        if (text == "eval" || text == "with") graph.scopes[scopes.back()].dynamic_lookup = true;
+        const bool direct_eval = text == "eval" && index + 1 < tokens.size() &&
+                                 tokens[index + 1].text == "(" &&
+                                 (index == 0 || tokens[index - 1].text != ".");
+        if (direct_eval || text == "with") mark_dynamic_function(scopes.back());
         if (text == "{") {
             const bool creates_scope = tokens[index].brace_kind != JsBraceKind::Object;
             brace_creates_scope.push_back(creates_scope);
@@ -278,6 +288,12 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                 if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
                     if (tokens[p].kind == JsTokenKind::Identifier && (p == open + 1 || tokens[p - 1].text == ","))
                         add_binding(scopes.back(), p, JsBindingKind::Parameter);
+            } else if (pending == JsScopeKind::Catch && index && tokens[index - 1].text == ")") {
+                std::size_t depth = 1, open = index - 1;
+                while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
+                if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
+                    if (tokens[p].kind == JsTokenKind::Identifier)
+                        add_binding(scopes.back(), p, JsBindingKind::Catch);
             }
             pending = JsScopeKind::Block;
         } else if (text == "}" && !brace_creates_scope.empty()) {
@@ -294,7 +310,14 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             else if (previous == "function") kind = JsBindingKind::Function;
             else if (previous == "class") kind = JsBindingKind::Class;
             else if (previous == "catch") kind = JsBindingKind::Catch;
-            if (kind != JsBindingKind::Unknown) add_binding(scopes.back(), index, kind);
+            if (kind != JsBindingKind::Unknown) {
+                std::size_t binding_scope = scopes.back();
+                if (kind == JsBindingKind::Var) {
+                    while (binding_scope && graph.scopes[binding_scope].kind != JsScopeKind::Function)
+                        binding_scope = graph.scopes[binding_scope].parent;
+                }
+                add_binding(binding_scope, index, kind);
+            }
         }
     }
     return graph;
@@ -348,7 +371,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         for(std::size_t i=scope.first_token+1;i+1<scope.last_token;++i){
             if(tokens[i].text=="{"){const std::string& p=tokens[i-1].text;if(p=="return"||p=="="||p=="("||p=="["||p==","||p==":")++object_depth;else unsafe=true;}
             else if(tokens[i].text=="}"){if(object_depth)--object_depth;else unsafe=true;}
-            if(tokens[i].text=="arguments"||tokens[i].text=="eval"||tokens[i].text=="with"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
+            if(tokens[i].text=="arguments"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
         }
         if(unsafe||tokens[scope.first_token-1].text!=")")continue;
         std::size_t depth=1,open=scope.first_token-1;
