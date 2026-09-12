@@ -71,6 +71,136 @@ std::string shorten_js_string(const std::string& token) {
     return token.front() == '\'' ? single : dual;
 }
 
+struct JsToken {
+    std::string text;
+    std::size_t begin;
+    std::size_t end;
+};
+
+struct JsReplacement {
+    std::size_t begin;
+    std::size_t end;
+    std::string text;
+};
+
+std::size_t matching_js_token(const std::vector<JsToken>& tokens,
+                              std::size_t open, const char* left,
+                              const char* right) {
+    std::size_t depth = 0;
+    for (std::size_t i = open; i < tokens.size(); ++i) {
+        if (tokens[i].text == left) ++depth;
+        else if (tokens[i].text == right && --depth == 0) return i;
+    }
+    return tokens.size();
+}
+
+[[maybe_unused]] std::vector<JsReplacement> plan_js_parameter_mangling(
+    const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string> unsafe_scope_words = {
+        "eval", "with", "arguments", "catch", "class", "let", "const"
+    };
+    static const std::unordered_set<std::string> reserved_words = {
+        "await", "break", "case", "catch", "class", "const", "continue",
+        "debugger", "default", "delete", "do", "else", "enum", "export",
+        "extends", "false", "finally", "for", "function", "if", "import",
+        "in", "instanceof", "let", "new", "null", "return", "static",
+        "super", "switch", "this", "throw", "true", "try", "typeof",
+        "var", "void", "while", "with", "yield"
+    };
+
+    for (std::size_t f = 0; f < tokens.size(); ++f) {
+        if (tokens[f].text != "function") continue;
+        std::size_t cursor = f + 1;
+        if (cursor < tokens.size() && tokens[cursor].text == "*") ++cursor;
+        if (cursor < tokens.size() && tokens[cursor].text != "(") ++cursor;
+        if (cursor >= tokens.size() || tokens[cursor].text != "(") continue;
+        const std::size_t close_params = matching_js_token(tokens, cursor, "(", ")");
+        if (close_params == tokens.size() || close_params + 1 >= tokens.size() ||
+            tokens[close_params + 1].text != "{") continue;
+        const std::size_t close_body =
+            matching_js_token(tokens, close_params + 1, "{", "}");
+        if (close_body == tokens.size()) continue;
+
+        std::vector<std::string> params;
+        bool simple_params = true;
+        for (std::size_t p = cursor + 1; p < close_params; ++p) {
+            if ((p - cursor) % 2 == 1) {
+                const std::string& name = tokens[p].text;
+                if (name.empty() || reserved_words.count(name) != 0 ||
+                    !(std::isalpha(static_cast<unsigned char>(name[0])) ||
+                      name[0] == '_' || name[0] == '$')) {
+                    simple_params = false;
+                    break;
+                }
+                params.push_back(name);
+            } else if (tokens[p].text != ",") {
+                simple_params = false;
+                break;
+            }
+        }
+        if (!simple_params || params.empty()) continue;
+
+        bool unsafe_scope = false;
+        std::unordered_set<std::string> occupied;
+        for (std::size_t p = close_params + 2; p < close_body; ++p) {
+            occupied.insert(tokens[p].text);
+            if (unsafe_scope_words.count(tokens[p].text) != 0 ||
+                tokens[p].text == "function" ||
+                (tokens[p].text == "=" && p + 1 < close_body &&
+                 tokens[p + 1].text == ">")) {
+                unsafe_scope = true;
+            }
+        }
+        if (unsafe_scope) continue;
+
+        std::vector<std::string> names = {"$", "_"};
+        for (char c = 'a'; c <= 'z'; ++c) names.emplace_back(1, c);
+        for (char c = 'A'; c <= 'Z'; ++c) names.emplace_back(1, c);
+        for (char a = 'a'; a <= 'z'; ++a)
+            for (char b = 'a'; b <= 'z'; ++b)
+                names.push_back(std::string(1, a) + b);
+        std::size_t next_name = 0;
+        for (std::size_t parameter = 0; parameter < params.size(); ++parameter) {
+            const std::string& original = params[parameter];
+            while (next_name < names.size() &&
+                   (occupied.count(names[next_name]) != 0 ||
+                    reserved_words.count(names[next_name]) != 0)) ++next_name;
+            if (next_name == names.size()) break;
+            const std::string replacement = names[next_name++];
+            if (replacement.size() >= original.size()) continue;
+
+            bool shorthand = false;
+            for (std::size_t p = close_params + 2; p < close_body; ++p) {
+                if (tokens[p].text != original) continue;
+                const std::string previous = p ? tokens[p - 1].text : std::string();
+                const std::string next = p + 1 < tokens.size()
+                    ? tokens[p + 1].text : std::string();
+                if ((previous == "{" || previous == ",") &&
+                    (next == "}" || next == ",")) shorthand = true;
+            }
+            if (shorthand) continue;
+
+            replacements.push_back({tokens[cursor + 1 + parameter * 2].begin,
+                                    tokens[cursor + 1 + parameter * 2].end,
+                                    replacement});
+            for (std::size_t p = close_params + 2; p < close_body; ++p) {
+                if (tokens[p].text != original) continue;
+                const std::string previous = p ? tokens[p - 1].text : std::string();
+                const std::string next = p + 1 < tokens.size()
+                    ? tokens[p + 1].text : std::string();
+                if (previous == "." || next == ":" ||
+                    ((previous == "{" || previous == ",") && next == "(")) continue;
+                replacements.push_back(
+                    {tokens[p].begin, tokens[p].end, replacement});
+            }
+            occupied.insert(replacement);
+        }
+        f = close_body;
+    }
+    return replacements;
+}
+
 bool js_line_terminator_in(const std::string& input, std::size_t begin, std::size_t end) {
     for (std::size_t i = begin; i < end; ++i) {
         if (input[i] == '\n' || input[i] == '\r') return true;
@@ -784,6 +914,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
     std::vector<bool> control_parens;
     std::vector<bool> block_braces;
     std::string last_token;
+    std::vector<JsToken> tokens;
     std::string before_semicolon_token;
     bool pending_class_brace = false;
     bool pending_class_expression = false;
@@ -881,7 +1012,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
             if (boolean_expression) output += word == "true" ? "!0" : "!1";
-            else output += word;
+            else {
+                const std::size_t token_begin = output.size();
+                output += word;
+                tokens.push_back({word, token_begin, output.size()});
+            }
 
             const bool was_pending_control_paren = pending_control_paren;
             pending_control_paren = control_keywords.count(word) != 0 ||
@@ -957,7 +1092,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == '(') {
             emit_pending(c);
+            const std::size_t token_begin = output.size();
             output.push_back(c);
+            tokens.push_back({"(", token_begin, output.size()});
             control_parens.push_back(pending_control_paren);
             pending_control_paren = false;
             can_start_regex = true;
@@ -968,7 +1105,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == ')') {
             emit_pending(c);
+            const std::size_t token_begin = output.size();
             output.push_back(c);
+            tokens.push_back({")", token_begin, output.size()});
             const bool was_control = !control_parens.empty() && control_parens.back();
             if (!control_parens.empty()) control_parens.pop_back();
             pending_control_paren = false;
@@ -1098,7 +1237,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 (pending_class_brace && pending_class_expression) ||
                 (pending_function_brace && pending_function_expression);
             block_braces.push_back(expression_body ? false : is_block);
+            const std::size_t token_begin = output.size();
             output.push_back(c);
+            tokens.push_back({"{", token_begin, output.size()});
             pending_class_brace = false;
             pending_class_expression = false;
             pending_function_brace = false;
@@ -1123,7 +1264,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 before_semicolon_token != ";") {
                 output.pop_back();
             }
+            const std::size_t token_begin = output.size();
             output.push_back(c);
+            tokens.push_back({"}", token_begin, output.size()});
             const bool was_block = block_braces.empty() ? true : block_braces.back();
             if (!block_braces.empty()) block_braces.pop_back();
             pending_control_paren = false;
@@ -1134,7 +1277,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
         }
 
         emit_pending(c);
+        const std::size_t token_begin = output.size();
         output.push_back(c);
+        tokens.push_back({std::string(1, c), token_begin, output.size()});
         pending_control_paren = false;
 
         if (c == ';') before_semicolon_token = last_token;
@@ -1162,6 +1307,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
         before_semicolon_token != ";") {
         output.pop_back();
     }
+    // Token positions are deliberately non-mutating in this checkpoint. They
+    // share the production lexer so later scope planning cannot diverge on
+    // comments, regex literals, templates, or brace classification.
     error.clear();
     return true;
 }
