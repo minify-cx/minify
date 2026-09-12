@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <string>
@@ -780,6 +781,64 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             scope = graph.scopes[scope].parent;
         }
     };
+    const auto matching_close = [&](std::size_t open) {
+        const std::string_view opening = tokens[open].text;
+        const std::string_view closing = opening == "{" ? "}" : "]";
+        std::size_t depth = 1;
+        for (std::size_t token = open + 1; token < tokens.size(); ++token) {
+            if (tokens[token].text == opening) ++depth;
+            else if (tokens[token].text == closing && --depth == 0) return token;
+        }
+        return tokens.size();
+    };
+    std::function<void(std::size_t,std::size_t,std::size_t,JsBindingKind)> add_pattern_bindings;
+    add_pattern_bindings = [&](std::size_t scope, std::size_t open,
+                               std::size_t close, JsBindingKind kind) {
+        const bool object = tokens[open].text == "{";
+        for (std::size_t token = open + 1; token < close;) {
+            if (tokens[token].text == ",") { ++token; continue; }
+            if (token + 2 < close && tokens[token].text == "." &&
+                tokens[token + 1].text == "." && tokens[token + 2].text == ".")
+                token += 3;
+            if (token >= close) break;
+            if (tokens[token].text == "{" || tokens[token].text == "[") {
+                const std::size_t nested_close = matching_close(token);
+                if (nested_close >= close) break;
+                add_pattern_bindings(scope, token, nested_close, kind);
+                token = nested_close + 1;
+            } else if (tokens[token].kind == JsTokenKind::Identifier) {
+                if (object && token + 1 < close && tokens[token + 1].text == ":") {
+                    token += 2;
+                    if (token < close && (tokens[token].text == "{" || tokens[token].text == "[")) {
+                        const std::size_t nested_close = matching_close(token);
+                        if (nested_close >= close) break;
+                        add_pattern_bindings(scope, token, nested_close, kind);
+                        token = nested_close + 1;
+                    } else if (token < close && tokens[token].kind == JsTokenKind::Identifier) {
+                        graph.scope_at_token[token] = scope;
+                        add_binding(scope, token, kind);
+                        ++token;
+                    }
+                } else {
+                    graph.scope_at_token[token] = scope;
+                    add_binding(scope, token, kind);
+                    ++token;
+                }
+            } else {
+                ++token;
+            }
+            if (token < close && tokens[token].text == "=") {
+                unsigned nested = 0;
+                do {
+                    ++token;
+                    if (token >= close) break;
+                    if (tokens[token].text == "(" || tokens[token].text == "[" || tokens[token].text == "{") ++nested;
+                    else if ((tokens[token].text == ")" || tokens[token].text == "]" || tokens[token].text == "}") && nested) --nested;
+                } while (nested || tokens[token].text != ",");
+            }
+            while (token < close && tokens[token].text != ",") ++token;
+        }
+    };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         graph.scope_at_token[index] = scopes.back();
         const std::string_view text = tokens[index].text;
@@ -845,11 +904,12 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                         if (binding_position && nested == 0) {
                             if (tokens[p].kind == JsTokenKind::Identifier)
                                 add_binding(scopes.back(), p, JsBindingKind::Parameter);
-                            else if ((tokens[p].text == "{" || tokens[p].text == "[") &&
-                                     p + 2 < close &&
-                                     tokens[p + 1].kind == JsTokenKind::Identifier &&
-                                     tokens[p + 2].text == (tokens[p].text == "{" ? "}" : "]"))
-                                add_binding(scopes.back(), p + 1, JsBindingKind::Parameter);
+                            else if (tokens[p].text == "{" || tokens[p].text == "[") {
+                                const std::size_t pattern_close = matching_close(p);
+                                if (pattern_close < close)
+                                    add_pattern_bindings(scopes.back(), p, pattern_close,
+                                                         JsBindingKind::Parameter);
+                            }
                             else if (p + 3 < close && tokens[p].text == "." &&
                                      tokens[p + 1].text == "." && tokens[p + 2].text == "." &&
                                      tokens[p + 3].kind == JsTokenKind::Identifier) {
@@ -975,6 +1035,14 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                             binding_scope = graph.scopes[binding_scope].parent;
                     }
                     add_binding(binding_scope, p, kind);
+                } else if (tokens[p].text == "{" || tokens[p].text == "[") {
+                    std::size_t binding_scope = graph.scope_at_token[keyword];
+                    if (kind == JsBindingKind::Var)
+                        while (binding_scope && graph.scopes[binding_scope].kind != JsScopeKind::Function)
+                            binding_scope = graph.scopes[binding_scope].parent;
+                    const std::size_t pattern_close = matching_close(p);
+                    if (pattern_close < tokens.size())
+                        add_pattern_bindings(binding_scope, p, pattern_close, kind);
                 }
                 binding_position = false;
             }
@@ -1724,9 +1792,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                                          shorthand * (binding.name.size() + 1 + replacement.size());
             if (new_size >= old_size) { occupied.insert(binding.name); continue; }
             for (std::size_t token : binding.declaration_tokens) {
-                const bool object_pattern_shorthand = binding.kind == JsBindingKind::Parameter &&
-                    token && tokens[token - 1].text == "{" && token + 1 < tokens.size() &&
-                    (tokens[token + 1].text == "}" || tokens[token + 1].text == ",");
+                const bool object_pattern_shorthand =
+                    js_identifier_is_shorthand(tokens, syntax, token);
                 replacements.push_back({tokens[token].begin, tokens[token].end,
                     object_pattern_shorthand ? std::string(binding.name) + ":" + replacement
                                              : replacement});

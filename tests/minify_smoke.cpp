@@ -734,6 +734,10 @@ int main() {
     eq(structured,"class Box{method($){return $}}","structured class method scope mangling");
     expect(minify::javascript("const box={async load(longName){return longName},*walk(otherName){yield otherName},set value(nextValue){this._value=nextValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const box={async load($){return $},*walk($){yield $},set value($){this._value=$}}","structured async generator and setter method mangling");
+    expect(minify::javascript("function nested({firstName:nestedName,deep:{secondName},...remainingValues},[arrayValue]){return nestedName+secondName+remainingValues.length+arrayValue}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function nested({firstName:$,deep:{secondName:_},...a},[b]){return $+_+a.length+b}","structured recursive destructuring parameter mangling");
+    expect(minify::javascript("function declarations(source){const {longProperty:localValue,nested:{deepValue},...restValues}=source;return localValue+deepValue+restValues.count}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function declarations($){const{longProperty:_,nested:{deepValue:a},...b}=$;return _+a+b.count}","structured recursive destructuring declaration mangling");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
