@@ -715,13 +715,29 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         const std::string continuation_characters = frequency_worthwhile
             ? ranked(default_continuation) : default_continuation;
 
-        std::size_t next_name = 0;
+        std::vector<std::pair<std::string, std::size_t>> allocated_names;
         for (std::size_t binding_id : eligible) {
             const JsBinding& binding = graph.bindings[binding_id];
             std::string replacement;
-            do replacement = js_short_name(next_name++, first_characters,
-                                           continuation_characters);
-            while (occupied.count(replacement));
+            for (std::size_t candidate_index = 0;; ++candidate_index) {
+                replacement = js_short_name(candidate_index, first_characters,
+                                            continuation_characters);
+                if (occupied.count(replacement)) continue;
+                bool conflicts = false;
+                for (const auto& allocated : allocated_names) {
+                    if (allocated.first != replacement) continue;
+                    const JsBinding& other = graph.bindings[allocated.second];
+                    const JsScope& left_scope = graph.scopes[binding.scope];
+                    const JsScope& right_scope = graph.scopes[other.scope];
+                    const bool reusable_kinds =
+                        (binding.kind == JsBindingKind::Lexical || binding.kind == JsBindingKind::Catch) &&
+                        (other.kind == JsBindingKind::Lexical || other.kind == JsBindingKind::Catch);
+                    const bool disjoint = left_scope.last_token <= right_scope.first_token ||
+                                          right_scope.last_token <= left_scope.first_token;
+                    if (!reusable_kinds || !disjoint) { conflicts = true; break; }
+                }
+                if (!conflicts) break;
+            }
             std::size_t ordinary = 1, shorthand = 0;
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
                 const JsReference& reference = graph.references[reference_id];
@@ -743,7 +759,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
                     shorthand ? std::string(binding.name) + ":" + replacement : replacement});
             }
-            occupied.insert(replacement);
+            allocated_names.push_back({replacement, binding_id});
         }
     }
     return replacements;

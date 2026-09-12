@@ -736,6 +736,8 @@ int main() {
     eq(structured,"function outer(_){return function($){return _+$}}","structured captured binding collision avoidance");
     expect(minify::javascript("function outer(longValue){return function(){eval('longValue');return longValue;};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function outer(longValue){return function(){eval('longValue');return longValue}}","structured captured binding dynamic lookup exclusion");
+    expect(minify::javascript("function blocks(flag){if(flag){let firstValue=1;use(firstValue)}else{let secondValue=2;use(secondValue)}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function blocks($){if($){let _=1;use(_)}else{let _=2;use(_)}}","structured disjoint lexical name reuse");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
