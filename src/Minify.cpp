@@ -1730,7 +1730,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
-            if (tokens[i].text == "arguments" || tokens[i].text == "class")
+            if (tokens[i].text == "arguments")
                 unsafe = true;
             // A block following a non-control parameter list is an object/class
             // method body, which the lightweight scope builder cannot yet model.
@@ -1758,13 +1758,25 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 occupied.insert(coordinated_names[captured]);
         for (std::size_t binding : bindings_by_unit[unit]) {
             const JsBinding& candidate = graph.bindings[binding];
+            bool referenced_from_opaque_class = false;
+            for (std::size_t reference_id : graph.references_by_binding[binding]) {
+                std::size_t scope = graph.references[reference_id].scope;
+                while (scope != unit && scope) {
+                    if (graph.scopes[scope].kind == JsScopeKind::Class) {
+                        referenced_from_opaque_class = true;
+                        break;
+                    }
+                    scope = graph.scopes[scope].parent;
+                }
+                if (referenced_from_opaque_class) break;
+            }
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
                                    candidate.kind == JsBindingKind::Catch;
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
             if (supported && duplicates == 1 && !reserved.count(candidate.name) &&
-                candidate.name.size() > 2)
+                candidate.name.size() > 2 && !referenced_from_opaque_class)
                 eligible.push_back(binding);
             else
                 occupied.insert(candidate.name);

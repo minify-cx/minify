@@ -750,6 +750,10 @@ int main() {
     eq(aggressive,"function outer(){function longHelper($){return $}use(longHelper(1));return 2}","aggressive local function binding fallback");
     expect(minify::javascript("function make(){class LongClass{method(longValue){return longValue}static{var staticValue=1;use(staticValue)}}return new LongClass}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function make(){class LongClass{method($){return $}static{var $=1;use($)}}return new LongClass}","aggressive class fallback with method and static-block mangling");
+    expect(minify::javascript("function outer(longValue){class Box{method(otherValue){return otherValue}}return longValue}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function outer($){class Box{method($){return $}}return $}","structured class subtree does not block unrelated outer binding");
+    expect(minify::javascript("function outer(longValue){class Box{field=longValue;method(otherValue){return otherValue}}return longValue}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function outer(longValue){class Box{field=longValue;method($){return $}}return longValue}","structured opaque class reference blocks only affected outer binding");
     expect(minify::javascript("function keep(mangle_options){return {mangle_options(){return 1},value:mangle_options}}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function keep($){return{mangle_options(){return 1},value:$}}","method key excluded from binding mangling");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
