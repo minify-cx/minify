@@ -371,8 +371,26 @@ struct JsControlFlowGraph {
              statement == JsStatementKind::While || statement == JsStatementKind::Switch) &&
             token + 1 < tokens.size() && tokens[token + 1].text == "(" &&
             syntax.matching_token[token + 1] < tokens.size()) {
-            const std::size_t after_condition = syntax.matching_token[token + 1] + 1;
-            if (after_condition < tokens.size()) flow.successors[token].push_back(after_condition);
+            const std::size_t body = syntax.matching_token[token + 1] + 1;
+            std::size_t body_end = body;
+            if (body < tokens.size() && tokens[body].text == "{" &&
+                syntax.matching_token[body] < tokens.size())
+                body_end = syntax.matching_token[body];
+            else
+                while (body_end + 1 < tokens.size() && tokens[body_end].text != ";") ++body_end;
+            const std::size_t after_body = body_end + 1;
+            flow.successors[token].push_back(after_body < tokens.size()
+                ? after_body : flow.normal_exit);
+            if (statement == JsStatementKind::For || statement == JsStatementKind::While)
+                flow.successors[body_end].push_back(token + 1);
+        }
+        if (statement == JsStatementKind::DoWhile && token + 1 < tokens.size()) {
+            const std::size_t body = token + 1;
+            std::size_t body_end = body;
+            if (tokens[body].text == "{" && syntax.matching_token[body] < tokens.size())
+                body_end = syntax.matching_token[body];
+            while (body_end + 1 < tokens.size() && tokens[body_end + 1].text != "while") ++body_end;
+            if (body_end + 1 < tokens.size()) flow.successors[body_end].push_back(body_end + 1);
         }
     }
     for (std::size_t token = 0; token < tokens.size(); ++token) {
