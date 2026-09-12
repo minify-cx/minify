@@ -291,11 +291,14 @@ struct JsBinding {
     std::size_t scope;
     JsBindingKind kind;
 };
+enum class JsReferenceAccess { Read, Write, ReadWrite };
 struct JsReference {
     std::size_t token;
     std::size_t scope;
     std::size_t binding;
     std::size_t binding_scope;
+    JsReferenceAccess access;
+    bool captured;
 };
 struct JsScope {
     JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
@@ -417,7 +420,28 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             if (found != graph.scopes[scope].bindings.end()) { resolved = *found; resolved_scope = scope; break; }
             if (!scope) break;
         }
-        graph.references.push_back({index, containing, resolved, resolved_scope});
+        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
+        const std::string previous = index ? tokens[index - 1].text : std::string();
+        JsReferenceAccess access = JsReferenceAccess::Read;
+        if (next == "=" && (index + 2 >= tokens.size() || tokens[index + 2].text != ">"))
+            access = JsReferenceAccess::Write;
+        else if ((next == "+" || next == "-") && index + 2 < tokens.size() &&
+                 tokens[index + 2].text == next)
+            access = JsReferenceAccess::ReadWrite;
+        else if ((previous == "+" || previous == "-") && index >= 2 &&
+                 tokens[index - 2].text == previous)
+            access = JsReferenceAccess::ReadWrite;
+        else if ((next == "+" || next == "-" || next == "*" || next == "/" || next == "%") &&
+                 index + 2 < tokens.size() && tokens[index + 2].text == "=")
+            access = JsReferenceAccess::ReadWrite;
+        bool captured = false;
+        if (resolved_scope < graph.scopes.size() && containing != resolved_scope) {
+            for (std::size_t scope = containing; scope != resolved_scope && scope != 0;
+                 scope = graph.scopes[scope].parent) {
+                if (graph.scopes[scope].kind == JsScopeKind::Function) { captured = true; break; }
+            }
+        }
+        graph.references.push_back({index, containing, resolved, resolved_scope, access, captured});
         if (index < syntax.identifier_roles.size() && role != JsIdentifierRole::ShorthandProperty)
             syntax.identifier_roles[index] = JsIdentifierRole::Reference;
         if (resolved < graph.bindings.size()) graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
