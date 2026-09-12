@@ -798,10 +798,13 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
         if (resolved < graph.bindings.size()) {
             graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
             if (captured) {
-                const std::size_t function = graph.containing_function[containing];
-                auto& captures = graph.captures_by_function[function];
-                if (std::find(captures.begin(), captures.end(), resolved) == captures.end())
-                    captures.push_back(resolved);
+                for (std::size_t scope = containing; scope != resolved_scope && scope;
+                     scope = graph.scopes[scope].parent) {
+                    if (graph.scopes[scope].kind != JsScopeKind::Function) continue;
+                    auto& captures = graph.captures_by_function[scope];
+                    if (std::find(captures.begin(), captures.end(), resolved) == captures.end())
+                        captures.push_back(resolved);
+                }
             }
         } else
             graph.unresolved_references.push_back(graph.references.size() - 1);
