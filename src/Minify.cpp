@@ -1046,6 +1046,15 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
             signature += "E" + std::to_string(token) + ":" +
                 std::to_string(static_cast<unsigned>(syntax.expression_kinds[token])) +
                 ":" + std::to_string(syntax.expression_precedence[token]) + ";";
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        const JsIdentifierRole role = syntax.identifier_roles[token];
+        if (role == JsIdentifierRole::MemberProperty || role == JsIdentifierRole::PropertyKey)
+            signature += "P" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(role)) + ";";
+    }
+    for (std::size_t id = 0; id < syntax.nodes.size(); ++id)
+        if (syntax.nodes[id].role == JsGroupRole::Arguments)
+            signature += "A" + std::to_string(id) + ";";
     return signature;
 }
 
