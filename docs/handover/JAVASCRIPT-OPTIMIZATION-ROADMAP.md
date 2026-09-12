@@ -140,6 +140,12 @@ evidence records two executable-bundle failures that Test262 alone did not
 expose. Captured-binding renaming and dead-local elimination remain disabled;
 they must not be presented as completed roadmap capabilities.
 
+The next fifteen coordinated-mangling foundation checkpoints are recorded in
+`docs/evidence/javascript-optimizer-foundation-checkpoints-1-15.md`. They add
+syntax inventories, canonical binding/reference/capture identities, a topology
+oracle, nested-name barriers and an interference-aware deterministic allocator.
+Captured-binding rewriting remains disabled until checkpoint 16.
+
 ## Aggressive checkpoint execution — 2026-09-12
 
 Checkpoints 21–30 activate a separately named, CLI/API opt-in aggressive layer.
