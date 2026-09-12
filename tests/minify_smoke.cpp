@@ -728,6 +728,9 @@ int main() {
     eq(aggressive,"function f(){var first,second;return 1}","aggressive adjacent var declaration join");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
+    minify::Options property_options;property_options.optimization=minify::OptimizationLevel::Aggressive;property_options.property_mangle_allowlist={"internalValue"};
+    expect(minify::javascript("const box={internalValue:3};box.internalValue;box.publicValue;",aggressive,err,property_options),err);
+    eq(aggressive,"const box={$:3};box.$;box.publicValue","explicit property allowlist mangling");
 
 
     std::cout << "Standalone minifier smoke test passed\n";

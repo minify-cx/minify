@@ -139,7 +139,8 @@ void help() {
         << "Use --in-place (or -i) to overwrite the source file.\n"
         << "Use --structured to enable proven-safe JavaScript binding renames.\n"
         << "Use --aggressive to enable the explicitly opt-in compression contract.\n"
-        << "Use --structured-jsx-expressions to apply them inside parsed JSX expressions.\n";
+        << "Use --structured-jsx-expressions to apply them inside parsed JSX expressions.\n"
+        << "Use --mangle-property=NAME with --aggressive to rename an approved property.\n";
 }
 }
 
@@ -157,6 +158,13 @@ int main(int argc, char** argv) {
         if (arg == "--in-place" || arg == "-i") { in_place = true; continue; }
         if (arg == "--structured") { options.optimization = minify::OptimizationLevel::Structured; continue; }
         if (arg == "--aggressive") { options.optimization = minify::OptimizationLevel::Aggressive; continue; }
+        if (arg.rfind("--mangle-property=", 0) == 0) {
+            const std::string name = arg.substr(18);
+            if (name.empty()) { std::cerr << "minify: empty property allowlist entry\n"; return 2; }
+            options.optimization = minify::OptimizationLevel::Aggressive;
+            options.property_mangle_allowlist.push_back(name);
+            continue;
+        }
         if (arg == "--structured-jsx-expressions") {
             options.optimization = minify::OptimizationLevel::Structured;
             options.structured_jsx_expressions = true;

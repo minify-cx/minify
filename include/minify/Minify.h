@@ -2,6 +2,7 @@
 #define MINIFYPP_MINIFY_H
 
 #include <string>
+#include <vector>
 
 namespace minify {
 
@@ -11,8 +12,11 @@ enum class Format { Html, Css, JavaScript, Jsx, Json, Xml, Svg };
 enum class OptimizationLevel { Conservative, Structured, Aggressive };
 
 struct Options {
+    Options() = default;
+    Options(OptimizationLevel level) : optimization(level) {}
     OptimizationLevel optimization = OptimizationLevel::Conservative;
     bool structured_jsx_expressions = false;
+    std::vector<std::string> property_mangle_allowlist;
 };
 
 bool html(const std::string& input, std::string& output, std::string& error);

@@ -92,6 +92,12 @@ Dynamic scope, unsupported syntax and transformations without a local proof are
 left unchanged. Each aggressive transform is independently testable and must
 fall back to structured output when its proof conditions are not met.
 
+Property mangling has a stricter boundary: only names repeated through an
+explicit `property_mangle_allowlist` (or CLI `--mangle-property=NAME`) are
+eligible. Minify++ does not infer that a property is private or safe at an API
+boundary; bracket-string, reflective and dynamically constructed access must be
+accounted for by the caller before opting a name in.
+
 ## Current adversarial gates
 
 - Independent complete external checkpoints: CSS 31,155/31,155, HTML

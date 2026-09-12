@@ -387,6 +387,36 @@ std::vector<JsReplacement> plan_js_literal_iifes(const std::vector<JsToken>& tok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_property_mangling(
+    const std::vector<JsToken>& tokens, const std::vector<std::string>& allowlist) {
+    std::vector<JsReplacement> replacements;
+    std::unordered_set<std::string> occupied;
+    for (const auto& token : tokens) if (token.kind == JsTokenKind::Identifier) occupied.insert(token.text);
+    std::vector<std::pair<std::string, std::string>> names;
+    std::size_t next_name = 0;
+    for (const auto& property : allowlist) {
+        if (property.empty() || occupied.count(property) == 0) continue;
+        if (std::any_of(names.begin(), names.end(), [&](const auto& pair){ return pair.first == property; })) continue;
+        std::string replacement;
+        do replacement = js_short_name(next_name++); while (occupied.count(replacement));
+        if (replacement.size() >= property.size()) continue;
+        occupied.insert(replacement);
+        names.push_back({property, replacement});
+    }
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].kind != JsTokenKind::Identifier) continue;
+        const auto found = std::find_if(names.begin(), names.end(), [&](const auto& pair){ return pair.first == tokens[i].text; });
+        if (found == names.end()) continue;
+        const std::string previous = i ? tokens[i - 1].text : std::string();
+        const std::string next = i + 1 < tokens.size() ? tokens[i + 1].text : std::string();
+        const bool dot_access = previous == ".";
+        const bool literal_key = next == ":" && (previous == "{" || previous == ",");
+        if (dot_access || literal_key)
+            replacements.push_back({tokens[i].begin, tokens[i].end, found->second});
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1294,7 +1324,8 @@ bool html(const std::string& input, std::string& output, std::string& error) {
 static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
                               bool collect_tokens = false, bool structured_rewrite = false,
-                              bool aggressive_rewrite = false) {
+                              bool aggressive_rewrite = false,
+                              const std::vector<std::string>* property_allowlist = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -1735,7 +1766,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             if (!replacements.empty()) {
                 const std::string rewritten = apply_js_replacements(input, std::move(replacements));
                 return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
-                                         aggressive_rewrite, aggressive_rewrite, aggressive_rewrite);
+                                         aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
+                                         property_allowlist);
             }
             if (aggressive_rewrite) {
                 auto append = [&](std::vector<JsReplacement> more) {
@@ -1747,10 +1779,12 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 append(plan_js_compound_assignments(tokens, scopes));
                 append(plan_js_var_declaration_joins(tokens));
                 append(plan_js_literal_iifes(tokens));
+                if (property_allowlist)
+                    append(plan_js_property_mangling(tokens, *property_allowlist));
                 if (!replacements.empty()) {
                     const std::string rewritten = apply_js_replacements(input, std::move(replacements));
                     return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
-                                             false, false, false);
+                                             false, false, false, nullptr);
                 }
             }
         }
@@ -1768,7 +1802,9 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
     return minify_javascript(input, output, error, false,
                              options.optimization != OptimizationLevel::Conservative,
                              options.optimization != OptimizationLevel::Conservative,
-                             options.optimization == OptimizationLevel::Aggressive);
+                             options.optimization == OptimizationLevel::Aggressive,
+                             options.optimization == OptimizationLevel::Aggressive
+                                 ? &options.property_mangle_allowlist : nullptr);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
