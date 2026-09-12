@@ -667,10 +667,16 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
                                          (previous == "{" || previous == ",");
         const bool statement_label = next == ":" && !object_member &&
             (index == 0 || previous == ";" || previous == "{" || previous == "}");
+        const bool method_key = next == "(" && index + 1 < syntax.matching_token.size() &&
+            syntax.matching_token[index + 1] < tokens.size() &&
+            syntax.matching_token[index + 1] + 1 < tokens.size() &&
+            tokens[syntax.matching_token[index + 1] + 1].text == "{" &&
+            previous != "function";
         JsIdentifierRole role = JsIdentifierRole::Reference;
         const bool spread = index >= 3 && tokens[index - 1].text == "." &&
                             tokens[index - 2].text == "." && tokens[index - 3].text == ".";
-        if (previous == "." && !spread) role = JsIdentifierRole::MemberProperty;
+        if (method_key) role = JsIdentifierRole::PropertyKey;
+        else if (previous == "." && !spread) role = JsIdentifierRole::MemberProperty;
         else if (previous == "#") role = JsIdentifierRole::PrivateName;
         else if (next == ":" && object_member_start) role = JsIdentifierRole::PropertyKey;
         else if (previous == "break" || previous == "continue" || statement_label)
@@ -876,7 +882,8 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                     before != "switch" && before != "catch" && before != "with" &&
                     before != "function";
             }
-            const JsScopeKind opening_kind = arrow_body || method_body
+            const bool static_block = index && tokens[index - 1].text == "static";
+            const JsScopeKind opening_kind = arrow_body || method_body || static_block
                 ? JsScopeKind::Function : pending;
             graph.scopes.push_back({opening_kind, scopes.back(), index, tokens.size(), false, {}});
             scopes.push_back(graph.scopes.size() - 1);
@@ -941,6 +948,13 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                 if (!depth && open + 2 == index &&
                     tokens[open + 1].kind == JsTokenKind::Identifier)
                     add_binding(scopes.back(), open + 1, JsBindingKind::Catch);
+                else if (!depth && open + 1 < index &&
+                         (tokens[open + 1].text == "{" || tokens[open + 1].text == "[")) {
+                    const std::size_t pattern_close = matching_close(open + 1);
+                    if (pattern_close < index)
+                        add_pattern_bindings(scopes.back(), open + 1, pattern_close,
+                                             JsBindingKind::Catch);
+                }
             }
             pending = JsScopeKind::Block;
         } else if (text == "}" && !brace_creates_scope.empty()) {
@@ -1495,10 +1509,6 @@ JsMangleCoverage analyze_js_mangle_coverage(const std::vector<JsToken>& tokens,
                      tokens[token + 1].text == ">" &&
                      (token + 2 >= function.last_token || tokens[token + 2].text != "{"))
                 barriers[unit] |= 8;
-            else if (text == "catch" && token + 2 < function.last_token &&
-                     tokens[token + 1].text == "(" &&
-                     (tokens[token + 2].text == "{" || tokens[token + 2].text == "["))
-                barriers[unit] |= 32;
             if (token != function.first_token && text == "{" &&
                 tokens[token].brace_kind == JsBraceKind::Block && token &&
                 tokens[token - 1].text == ")") {
@@ -1685,10 +1695,6 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
             if (tokens[i].text == "arguments" || tokens[i].text == "class")
-                unsafe = true;
-            if (tokens[i].text == "catch" && i + 2 < function.last_token &&
-                tokens[i + 1].text == "(" &&
-                (tokens[i + 2].text == "{" || tokens[i + 2].text == "["))
                 unsafe = true;
             // A block following a non-control parameter list is an object/class
             // method body, which the lightweight scope builder cannot yet model.
@@ -3694,7 +3700,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 last_token == ")" || last_token == ")control" ||
                 last_token == "else" || last_token == "do" ||
                 last_token == "try" || last_token == "catch" || last_token == "finally" ||
-                last_token == "class") {
+                last_token == "class" || last_token == "static") {
                 is_block = true;
             } else if (last_token == ":" && (block_braces.empty() || block_braces.back())) {
                 // A labelled statement (`label: { ... }`) closes like a block,

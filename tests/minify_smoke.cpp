@@ -744,6 +744,14 @@ int main() {
     eq(structured,"function keys($){for(const{longKey:_}in $){use(_)}}","structured for-in destructuring binding mangling");
     expect(minify::javascript("function loops(items){for(let longIndex=0;longIndex<items.length;longIndex++){use(longIndex)}let longIndex=3;return longIndex}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function loops($){for(let longIndex=0;longIndex<$.length;longIndex++){use(longIndex)}let longIndex=3;return longIndex}","structured shadowed for-head fallback");
+    expect(minify::javascript("function caught(){try{work()}catch({message:longMessage,code:{valueCode}}){return longMessage+valueCode}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function caught(){try{work()}catch({message:$,code:{valueCode:_}}){return $+_}}","structured recursive catch binding mangling");
+    expect(minify::javascript("function outer(){function longHelper(longValue){return longValue}use(longHelper(1));return 2}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function outer(){function longHelper($){return $}use(longHelper(1));return 2}","aggressive local function binding fallback");
+    expect(minify::javascript("function make(){class LongClass{method(longValue){return longValue}static{var staticValue=1;use(staticValue)}}return new LongClass}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function make(){class LongClass{method($){return $}static{var $=1;use($)}}return new LongClass}","aggressive class fallback with method and static-block mangling");
+    expect(minify::javascript("function keep(mangle_options){return {mangle_options(){return 1},value:mangle_options}}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function keep($){return{mangle_options(){return 1},value:$}}","method key excluded from binding mangling");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
