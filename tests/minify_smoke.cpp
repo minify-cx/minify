@@ -758,6 +758,11 @@ int main() {
     eq(renamed_signature,original_signature,"binding signature accepts consistent alpha renaming");
     expect(minify::javascript_binding_signature("function total($){return otherValue+externalValue}",renamed_signature,err),err);
     expect(renamed_signature != original_signature,"binding signature rejected inconsistent alpha renaming");
+    expect(minify::javascript_mangle_report("function total(longValue){return longValue+externalValue}",original_signature,err),err);
+    expect(original_signature.find("bindings\t2")!=std::string::npos&&
+           original_signature.find("eligible\t1")!=std::string::npos&&
+           original_signature.find("top-level\t1")!=std::string::npos,
+           "mangle coverage report");
     expect(minify::javascript_effect_signature("function total(longValue){return call(longValue)}",original_signature,err),err);
     expect(minify::javascript_effect_signature("function total($){return call($)}",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"effect signature accepts alpha renaming");

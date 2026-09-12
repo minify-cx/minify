@@ -1316,6 +1316,114 @@ struct JsBindingInterferenceGraph {
 
 struct JsNameAlphabet { std::string first; std::string continuation; };
 
+struct JsMangleCoverage {
+    std::size_t bindings = 0;
+    std::size_t references = 0;
+    std::size_t unresolved = 0;
+    std::size_t eligible = 0;
+    std::size_t short_names = 0;
+    std::size_t top_level = 0;
+    std::size_t unsupported_kind = 0;
+    std::size_t duplicate = 0;
+    std::size_t dynamic_scope = 0;
+    std::size_t arguments = 0;
+    std::size_t classes = 0;
+    std::size_t concise_arrows = 0;
+    std::size_t methods = 0;
+    std::size_t catch_patterns = 0;
+};
+
+JsMangleCoverage analyze_js_mangle_coverage(const std::vector<JsToken>& tokens,
+                                             const JsScopeGraph& graph) {
+    JsMangleCoverage result;
+    result.bindings = graph.bindings.size();
+    result.references = graph.references.size();
+    result.unresolved = graph.unresolved_references.size();
+    std::vector<std::unordered_map<std::string_view, std::size_t>> counts(graph.scopes.size());
+    for (const JsBinding& binding : graph.bindings) ++counts[binding.scope][binding.name];
+    std::vector<unsigned> barriers(graph.scopes.size(), 0);
+    for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
+        const JsScope& function = graph.scopes[unit];
+        if (function.kind != JsScopeKind::Function) continue;
+        if (function.dynamic_lookup || function.descendant_dynamic_lookup) barriers[unit] |= 1;
+        for (std::size_t token = function.first_token; token < function.last_token; ++token) {
+            if (graph.containing_function[graph.scope_at_token[token]] != unit) continue;
+            const std::string_view text = tokens[token].text;
+            if (text == "arguments") barriers[unit] |= 2;
+            else if (text == "class") barriers[unit] |= 4;
+            else if (text == "=" && token + 1 < function.last_token &&
+                     tokens[token + 1].text == ">" &&
+                     (token + 2 >= function.last_token || tokens[token + 2].text != "{"))
+                barriers[unit] |= 8;
+            else if (text == "catch" && token + 2 < function.last_token &&
+                     tokens[token + 1].text == "(" &&
+                     (tokens[token + 2].text == "{" || tokens[token + 2].text == "["))
+                barriers[unit] |= 32;
+            if (text == "{" && tokens[token].brace_kind == JsBraceKind::Block && token &&
+                tokens[token - 1].text == ")") {
+                std::size_t open = token - 1, depth = 1;
+                while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
+                const std::string_view before = open ? tokens[open - 1].text : std::string_view();
+                bool function_parameters = false;
+                for (std::size_t lookback = open; lookback && open - lookback < 4; --lookback)
+                    if (tokens[lookback - 1].text == "function") function_parameters = true;
+                if (before != "if" && before != "for" && before != "while" &&
+                    before != "switch" && before != "catch" && before != "with" &&
+                    !function_parameters) barriers[unit] |= 16;
+            }
+        }
+    }
+    static const std::unordered_set<std::string_view> reserved = {
+        "await","break","case","catch","class","const","continue","debugger",
+        "default","delete","do","else","enum","eval","export","extends","false",
+        "finally","for","function","if","implements","import","in","instanceof",
+        "interface","let","new","null","package","private","protected","public",
+        "return","static","super","switch","this","throw","true","try","typeof",
+        "var","void","while","with","yield","arguments"
+    };
+    for (const JsBinding& binding : graph.bindings) {
+        const std::size_t unit = graph.containing_function[binding.scope];
+        if (!unit) { ++result.top_level; continue; }
+        const unsigned barrier = barriers[unit];
+        if (barrier) {
+            if (barrier & 1) ++result.dynamic_scope;
+            if (barrier & 2) ++result.arguments;
+            if (barrier & 4) ++result.classes;
+            if (barrier & 8) ++result.concise_arrows;
+            if (barrier & 16) ++result.methods;
+            if (barrier & 32) ++result.catch_patterns;
+            continue;
+        }
+        const bool supported = binding.kind == JsBindingKind::Parameter ||
+            binding.kind == JsBindingKind::Var || binding.kind == JsBindingKind::Lexical ||
+            binding.kind == JsBindingKind::Catch;
+        if (!supported || reserved.count(binding.name)) { ++result.unsupported_kind; continue; }
+        if (counts[binding.scope][binding.name] != 1) { ++result.duplicate; continue; }
+        if (binding.name.size() <= 2) { ++result.short_names; continue; }
+        ++result.eligible;
+    }
+    return result;
+}
+
+std::string build_js_mangle_report(const std::vector<JsToken>& tokens,
+                                   const JsScopeGraph& graph) {
+    const JsMangleCoverage value = analyze_js_mangle_coverage(tokens, graph);
+    return "bindings\t" + std::to_string(value.bindings) +
+        "\treferences\t" + std::to_string(value.references) +
+        "\tunresolved\t" + std::to_string(value.unresolved) +
+        "\teligible\t" + std::to_string(value.eligible) +
+        "\tshort\t" + std::to_string(value.short_names) +
+        "\ttop-level\t" + std::to_string(value.top_level) +
+        "\tunsupported-kind\t" + std::to_string(value.unsupported_kind) +
+        "\tduplicate\t" + std::to_string(value.duplicate) +
+        "\tdynamic\t" + std::to_string(value.dynamic_scope) +
+        "\targuments\t" + std::to_string(value.arguments) +
+        "\tclass\t" + std::to_string(value.classes) +
+        "\tconcise-arrow\t" + std::to_string(value.concise_arrows) +
+        "\tmethod\t" + std::to_string(value.methods) +
+        "\tcatch-pattern\t" + std::to_string(value.catch_patterns);
+}
+
 JsNameAlphabet build_js_frequency_alphabet(const std::vector<JsToken>& tokens,
                                             std::size_t begin, std::size_t end,
                                             bool worthwhile) {
@@ -3030,6 +3138,7 @@ struct JsDiagnostics {
     std::string* effect = nullptr;
     std::string* ir = nullptr;
     std::string* cfg = nullptr;
+    std::string* mangle = nullptr;
 };
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -3049,6 +3158,8 @@ void populate_js_diagnostics(const std::vector<JsToken>& tokens,
         *diagnostics.ir = build_js_ir_signature(tokens, syntax, scopes);
     if (diagnostics.cfg)
         *diagnostics.cfg = build_js_cfg_signature(tokens, syntax);
+    if (diagnostics.mangle)
+        *diagnostics.mangle = build_js_mangle_report(tokens, scopes);
 }
 
 static bool minify_javascript(const std::string& input, std::string& output,
@@ -3591,6 +3702,15 @@ bool javascript_binding_signature(const std::string& input, std::string& signatu
     std::string ignored;
     signature.clear();
     JsDiagnostics diagnostics{&signature, nullptr, nullptr, nullptr};
+    return minify_javascript(input, ignored, error, false, true, false, false,
+                             nullptr, nullptr, &diagnostics);
+}
+
+bool javascript_mangle_report(const std::string& input, std::string& report,
+                              std::string& error) {
+    std::string ignored;
+    report.clear();
+    JsDiagnostics diagnostics{nullptr, nullptr, nullptr, nullptr, &report};
     return minify_javascript(input, ignored, error, false, true, false, false,
                              nullptr, nullptr, &diagnostics);
 }
