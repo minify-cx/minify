@@ -712,6 +712,10 @@ int main() {
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
+    expect(minify::javascript("const n=(200+30);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const n=230","aggressive exact integer constant folding");
+    expect(minify::javascript("const n=(9007199254740991+1);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const n=(9007199254740991+1)","aggressive unsafe integer fold exclusion");
 
 
     std::cout << "Standalone minifier smoke test passed\n";

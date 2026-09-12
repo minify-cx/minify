@@ -261,6 +261,45 @@ std::string apply_js_replacements(const std::string& source,std::vector<JsReplac
     result.append(source,cursor,source.size()-cursor);return result;
 }
 
+bool parse_small_decimal(const std::string& text, std::uint64_t& value) {
+    if (text.empty()) return false;
+    value = 0;
+    for (char c : text) {
+        if (c < '0' || c > '9') return false;
+        const unsigned digit = static_cast<unsigned>(c - '0');
+        if (value > (9007199254740991ULL - digit) / 10) return false;
+        value = value * 10 + digit;
+    }
+    return true;
+}
+
+std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
+        if (tokens[i].text != "(" || tokens[i + 1].kind != JsTokenKind::Number ||
+            tokens[i + 3].kind != JsTokenKind::Number || tokens[i + 4].text != ")") continue;
+        std::uint64_t left = 0, right = 0, result = 0;
+        if (!parse_small_decimal(tokens[i + 1].text, left) ||
+            !parse_small_decimal(tokens[i + 3].text, right)) continue;
+        const std::string& op = tokens[i + 2].text;
+        if (op == "+") {
+            if (left > 9007199254740991ULL - right) continue;
+            result = left + right;
+        } else if (op == "-") {
+            if (left < right) continue;
+            result = left - right;
+        } else if (op == "*") {
+            if (right && left > 9007199254740991ULL / right) continue;
+            result = left * right;
+        } else continue;
+        const std::string folded = std::to_string(result);
+        if (folded.size() < tokens[i + 4].end - tokens[i].begin)
+            replacements.push_back({tokens[i].begin, tokens[i + 4].end, folded});
+        i += 4;
+    }
+    return replacements;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1167,7 +1206,8 @@ bool html(const std::string& input, std::string& output, std::string& error) {
 // line terminators remain available to automatic semicolon insertion.
 static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
-                              bool collect_tokens = false, bool structured_rewrite = false) {
+                              bool collect_tokens = false, bool structured_rewrite = false,
+                              bool aggressive_rewrite = false) {
     output.clear();
     output.reserve(input.size());
 
@@ -1603,7 +1643,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
-        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false);}}
+        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(aggressive_rewrite){auto folded=plan_js_constant_folding(tokens);replacements.insert(replacements.end(),folded.begin(),folded.end());}if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false,false);}}
     }
     error.clear();
     return true;
@@ -1617,7 +1657,8 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
                 const Options& options) {
     return minify_javascript(input, output, error, false,
                              options.optimization != OptimizationLevel::Conservative,
-                             options.optimization != OptimizationLevel::Conservative);
+                             options.optimization != OptimizationLevel::Conservative,
+                             options.optimization == OptimizationLevel::Aggressive);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
