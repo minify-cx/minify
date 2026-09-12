@@ -107,6 +107,12 @@ struct JsReplacement {
     std::string text;
 };
 
+struct JsRewriteResult {
+    std::string text;
+    bool valid = true;
+    bool smaller = false;
+};
+
 enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
 enum class JsGroupRole { Root, Grouping, Arguments, Parameters, ArrayLiteral, ObjectLiteral, Block, Unknown };
 enum class JsIdentifierRole {
@@ -325,11 +331,18 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     return replacements;
 }
 
-std::string apply_js_replacements(const std::string& source,std::vector<JsReplacement> replacements){
+JsRewriteResult apply_js_replacements(const std::string& source,
+                                      std::vector<JsReplacement> replacements){
     std::sort(replacements.begin(),replacements.end(),[](const auto& a,const auto& b){return a.begin<b.begin;});
     std::string result;result.reserve(source.size());std::size_t cursor=0;
-    for(const auto& r:replacements){if(r.begin<cursor||r.end>source.size())continue;result.append(source,cursor,r.begin-cursor);result+=r.text;cursor=r.end;}
-    result.append(source,cursor,source.size()-cursor);return result;
+    for(const auto& r:replacements){
+        if(r.begin<cursor||r.end<r.begin||r.end>source.size())
+            return {source, false, false};
+        result.append(source,cursor,r.begin-cursor);result+=r.text;cursor=r.end;
+    }
+    result.append(source,cursor,source.size()-cursor);
+    if(result.size()>=source.size())return {source,true,false};
+    return {std::move(result),true,true};
 }
 
 bool parse_small_decimal(const std::string& text, std::uint64_t& value) {
@@ -1837,8 +1850,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
         if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
             auto replacements = plan_safe_js_parameter_renaming(tokens, syntax, scopes);
             if (!replacements.empty()) {
-                const std::string rewritten = apply_js_replacements(input, std::move(replacements));
-                return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
+                const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
+                if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
+                return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                          aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
                                          property_allowlist);
             }
@@ -1855,8 +1869,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 if (property_allowlist)
                     append(plan_js_property_mangling(tokens, *property_allowlist));
                 if (!replacements.empty()) {
-                    const std::string rewritten = apply_js_replacements(input, std::move(replacements));
-                    return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,
+                    const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
+                    if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
+                    return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                              false, false, false, nullptr);
                 }
             }
