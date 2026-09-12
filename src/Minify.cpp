@@ -803,7 +803,22 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             if (!creates_scope) continue;
             const bool arrow_body = index >= 2 && tokens[index - 1].text == ">" &&
                                     tokens[index - 2].text == "=";
-            const JsScopeKind opening_kind = arrow_body ? JsScopeKind::Function : pending;
+            bool method_body = false;
+            if (!arrow_body && pending == JsScopeKind::Block && index &&
+                tokens[index - 1].text == ")") {
+                std::size_t open = index - 1, depth = 1;
+                while (open && depth) {
+                    --open;
+                    if (tokens[open].text == ")") ++depth;
+                    else if (tokens[open].text == "(") --depth;
+                }
+                const std::string_view before = open ? tokens[open - 1].text : std::string_view();
+                method_body = before != "if" && before != "for" && before != "while" &&
+                    before != "switch" && before != "catch" && before != "with" &&
+                    before != "function";
+            }
+            const JsScopeKind opening_kind = arrow_body || method_body
+                ? JsScopeKind::Function : pending;
             graph.scopes.push_back({opening_kind, scopes.back(), index, tokens.size(), false, {}});
             scopes.push_back(graph.scopes.size() - 1);
             graph.scope_at_token[index] = scopes.back();
@@ -1416,7 +1431,8 @@ JsMangleCoverage analyze_js_mangle_coverage(const std::vector<JsToken>& tokens,
                      tokens[token + 1].text == "(" &&
                      (tokens[token + 2].text == "{" || tokens[token + 2].text == "["))
                 barriers[unit] |= 32;
-            if (text == "{" && tokens[token].brace_kind == JsBraceKind::Block && token &&
+            if (token != function.first_token && text == "{" &&
+                tokens[token].brace_kind == JsBraceKind::Block && token &&
                 tokens[token - 1].text == ")") {
                 std::size_t open = token - 1, depth = 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
@@ -1608,7 +1624,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 unsafe = true;
             // A block following a non-control parameter list is an object/class
             // method body, which the lightweight scope builder cannot yet model.
-            if (tokens[i].text == "{" && tokens[i].brace_kind == JsBraceKind::Block && i &&
+            if (i != function.first_token && tokens[i].text == "{" &&
+                tokens[i].brace_kind == JsBraceKind::Block && i &&
                 tokens[i - 1].text == ")") {
                 std::size_t open = i - 1, depth = 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }

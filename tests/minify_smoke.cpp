@@ -728,6 +728,12 @@ int main() {
     eq(structured,"const total=$=>()=>$","structured concise arrow capture mangling");
     expect(minify::javascript("function choose(async){return async?left:right}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function choose($){return $?left:right}","structured contextual async reference mangling");
+    expect(minify::javascript("const box={method(longParameter){const localValue=longParameter;return localValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const box={method($){const _=$;return _}}","structured object method scope mangling");
+    expect(minify::javascript("class Box{method(longParameter){return longParameter}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"class Box{method($){return $}}","structured class method scope mangling");
+    expect(minify::javascript("const box={async load(longName){return longName},*walk(otherName){yield otherName},set value(nextValue){this._value=nextValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const box={async load($){return $},*walk($){yield $},set value($){this._value=$}}","structured async generator and setter method mangling");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
