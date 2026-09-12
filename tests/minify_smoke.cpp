@@ -155,6 +155,9 @@ int main() {
     expect(minify::javascript("const x={true:1,false(){return false}};x.true;", out, err), err);
     eq(out, "const x={true:1,false(){return!1}};x.true",
        "JavaScript boolean property names preserved");
+    expect(minify::javascript("const a=0xeac7,b=0b111111,c=0o17,d=0xffffffffffffffffn;", out, err), err);
+    eq(out, "const a=60103,b=63,c=15,d=0xffffffffffffffffn",
+       "JavaScript radix integer shortening");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");
@@ -415,7 +418,7 @@ int main() {
     expect(minify::javascript("const s = 1 .toString();", out, err), err);
     expect(out.find("1 .toString") != std::string::npos, "numeric literal/member boundary collapsed");
     expect(minify::javascript("const s = 0x1 .toString();", out, err), err);
-    expect(out.find("0x1 .toString") != std::string::npos, "hex numeric/member boundary collapsed");
+    expect(out.find("1 .toString") != std::string::npos, "hex numeric/member boundary collapsed");
     expect(minify::javascript("const s = 1e3 .toString();", out, err), err);
     expect(out.find("1e3 .toString") != std::string::npos, "exponent numeric/member boundary collapsed");
     expect(minify::javascript("const y = x / /a/.test(s);", out, err), err);

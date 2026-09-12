@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -12,6 +13,29 @@ namespace {
 
 bool ws(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
+}
+
+std::string shorten_js_integer(const std::string& token) {
+    if (token.size() < 3 || token[0] != '0') return token;
+    unsigned base = 0;
+    if (token[1] == 'x' || token[1] == 'X') base = 16;
+    else if (token[1] == 'b' || token[1] == 'B') base = 2;
+    else if (token[1] == 'o' || token[1] == 'O') base = 8;
+    else return token;
+
+    std::uint64_t value = 0;
+    for (std::size_t i = 2; i < token.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(token[i]);
+        unsigned digit = 0;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'a' && c <= 'f') digit = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return token;  // Separators, BigInt suffixes and malformed input.
+        if (digit >= base || value > (UINT64_MAX - digit) / base) return token;
+        value = value * base + digit;
+    }
+    const std::string decimal = std::to_string(value);
+    return decimal.size() < token.size() ? decimal : token;
 }
 
 bool js_line_terminator_in(const std::string& input, std::size_t begin, std::size_t end) {
@@ -870,8 +894,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 }
                 break;
             }
-            emit_pending(input[begin]);
-            output.append(input, begin, i - begin);
+            const std::string number = shorten_js_integer(input.substr(begin, i - begin));
+            emit_pending(number.front());
+            output += number;
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
