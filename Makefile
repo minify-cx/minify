@@ -12,6 +12,8 @@ SANITIZER_FLAGS ?= -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 FUZZ_CASES ?= 10000
 BENCH_REPETITIONS ?= 10000
 BENCH_ITERATIONS ?= 20
+JSPP_DIR ?= ../js
+JSPP_OBSERVER := $(TESTDIR)/jspp-frontend-observe
 
 all: $(TARGET)
 
@@ -69,6 +71,15 @@ benchmark:
 	  $(TESTDIR)/minifypp-benchmark $(BENCH_REPETITIONS) $(BENCH_ITERATIONS); \
 	fi
 
+$(JSPP_OBSERVER): benchmarks/jspp_frontend_observe.cpp
+	mkdir -p $(TESTDIR)
+	$(CXX) $(CXXFLAGS) -I$(JSPP_DIR)/include benchmarks/jspp_frontend_observe.cpp \
+		$(JSPP_DIR)/build/libjspp-frontend.a -o $(JSPP_OBSERVER)
+
+observe-jspp-frontend: $(JSPP_OBSERVER)
+	@test -n "$(FILES)" || { echo "set FILES to JavaScript inputs" >&2; exit 2; }
+	$(JSPP_OBSERVER) $(FILES)
+
 distcheck:
 	bash scripts/distcheck.sh
 
@@ -114,7 +125,7 @@ test-cli: $(TARGET)
 clean:
 	rm -rf $(TESTDIR) $(TARGET)
 
-.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark distcheck clean
+.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark observe-jspp-frontend distcheck clean
 
 test-formats:
 	bash tests/minify_format_idempotence.sh
