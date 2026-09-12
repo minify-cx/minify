@@ -144,7 +144,7 @@ int main() {
            out.find("a\n/regex/") != std::string::npos,
            "JavaScript expression-continuation newlines stripped");
     expect(minify::javascript("if(a){\nwork();\n}\nnext();", out, err), err);
-    eq(out, "if(a){work()}next()", "JavaScript block-boundary compaction");
+    eq(out, "if(a){work()}\nnext()", "JavaScript closing-brace newline preservation");
     expect(minify::javascript("function f(){return call();}const x=1;", out, err), err);
     eq(out, "function f(){return call()}const x=1", "JavaScript redundant semicolon removal");
     expect(minify::javascript("function f(){while(test);label:;}for(;;);", out, err), err);

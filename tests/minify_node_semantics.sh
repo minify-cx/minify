@@ -46,5 +46,7 @@ run_case class_expression_division "const x=class {static valueOf(){return 12}} 
 run_case named_class_expression_division "const x=class X {static valueOf(){return 12}} / 2; console.log(Number.isNaN(x));"
 run_case function_expression_division "const x=function(){} / 2; console.log(Number.isNaN(x));"
 run_case async_function_expression_division "const x=async function(){} / 2; console.log(Number.isNaN(x));"
+run_case async_function_expression_asi $'const f=async function(){return 1}\nf().then(console.log);'
+run_case nested_default_function_asi $'const f=async function(x=(function(){return 1})()){return x}\nf().then(console.log);'
 run_case catch_without_binding_regex "try{}catch{} /https?:\\/\\//.test('https://x')&&console.log('yes');"
 echo "JavaScript minifier Node semantic differential test passed"
