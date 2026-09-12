@@ -401,6 +401,20 @@ enum class JsLineTerminatorAction {
     PreserveAsiBoundary
 };
 
+enum class JsSemicolonRole { EmptyControlBody, RequiredEmptyStatement, Delimiter };
+
+JsSemicolonRole classify_js_semicolon(const std::string& previous_token) {
+    if (previous_token == ")control") return JsSemicolonRole::EmptyControlBody;
+    if (previous_token == ":" || previous_token == "{" ||
+        previous_token == ";" || previous_token == "else" ||
+        previous_token == "do") return JsSemicolonRole::RequiredEmptyStatement;
+    return JsSemicolonRole::Delimiter;
+}
+
+bool js_semicolon_may_be_elided(const std::string& previous_token) {
+    return classify_js_semicolon(previous_token) == JsSemicolonRole::Delimiter;
+}
+
 JsLineTerminatorAction classify_js_line_terminator(char left,
                                                    const std::string& previous_token,
                                                    char next) {
@@ -1366,11 +1380,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             // semicolons which form an empty control/labelled statement; all
             // other immediately preceding semicolons are redundant.
             if (!preserve_jsx_boundaries && !output.empty() && output.back() == ';' &&
-                before_semicolon_token != ")control" &&
-                before_semicolon_token != ":" &&
-                before_semicolon_token != "{" &&
-                before_semicolon_token != ";" &&
-                before_semicolon_token != "else") {
+                js_semicolon_may_be_elided(before_semicolon_token)) {
                 output.pop_back();
             }
             output.push_back(c);
@@ -1408,11 +1418,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     while (!output.empty() && ws(output.back())) output.pop_back();
     if (!preserve_jsx_boundaries && !output.empty() && output.back() == ';' &&
-        before_semicolon_token != ")control" &&
-        before_semicolon_token != ":" &&
-        before_semicolon_token != "{" &&
-        before_semicolon_token != ";" &&
-        before_semicolon_token != "else") {
+        js_semicolon_may_be_elided(before_semicolon_token)) {
         output.pop_back();
     }
     error.clear();

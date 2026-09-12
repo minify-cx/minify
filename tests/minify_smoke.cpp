@@ -520,6 +520,15 @@ int main() {
     expect(out.find("a\n++b") != std::string::npos, "postfix line terminator removed");
     expect(out.find("async\nx=>x") != std::string::npos, "async arrow boundary removed");
 
+    expect(minify::javascript("while(condition);", out, err), err);
+    eq(out, "while(condition);", "while empty statement removed");
+    expect(minify::javascript("for(;;);", out, err), err);
+    eq(out, "for(;;);", "for empty statement removed");
+    expect(minify::javascript("label:;", out, err), err);
+    eq(out, "label:;", "label empty statement removed");
+    expect(minify::javascript("do;while(condition);", out, err), err);
+    eq(out, "do;while(condition);", "do/while empty statement removed");
+
     // Idempotence: a second minification pass must be byte-identical.
     auto idem = [&](minify::Format fmt, const std::string& src, const char* label) {
         std::string a,b,e;
