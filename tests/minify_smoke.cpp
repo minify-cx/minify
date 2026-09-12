@@ -726,6 +726,10 @@ int main() {
     eq(structured,"const total=longValue=>()=>longValue","structured concise arrow capture exclusion");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
+    expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total({longValue:$}){return $+$}","structured object destructuring parameter");
+    expect(minify::javascript("function total([longValue]){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total([$]){return $+$}","structured array destructuring parameter");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
