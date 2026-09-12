@@ -139,11 +139,21 @@ struct JsRewriteResult {
 enum class JsValueKind { Unknown, Null, Boolean, Number, String };
 enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
 enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
+struct JsEffectSummary {
+    bool reads_state = false;
+    bool writes_state = false;
+    bool calls_user_code = false;
+    bool may_throw = false;
+    bool definitely_pure() const {
+        return !reads_state && !writes_state && !calls_user_code && !may_throw;
+    }
+};
 
 struct JsSemanticFacts {
     std::vector<JsValueKind> values;
     std::vector<JsEffectKind> effects;
     std::vector<JsCompletionKind> completions;
+    std::vector<JsEffectSummary> effect_summaries;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -151,6 +161,7 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.values.resize(tokens.size(), JsValueKind::Unknown);
     facts.effects.resize(tokens.size(), JsEffectKind::MayThrow);
     facts.completions.resize(tokens.size(), JsCompletionKind::Normal);
+    facts.effect_summaries.resize(tokens.size());
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
         if (token.kind == JsTokenKind::Number) facts.values[index] = JsValueKind::Number;
@@ -176,6 +187,22 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
         else if (token.text == "throw") facts.completions[index] = JsCompletionKind::Throw;
         else if (token.text == "break") facts.completions[index] = JsCompletionKind::Break;
         else if (token.text == "continue") facts.completions[index] = JsCompletionKind::Continue;
+
+        JsEffectSummary& summary = facts.effect_summaries[index];
+        if (facts.effects[index] == JsEffectKind::Read) summary.reads_state = true;
+        else if (facts.effects[index] == JsEffectKind::Write) summary.writes_state = true;
+        else if (facts.effects[index] == JsEffectKind::CallOrConstruct) {
+            summary.calls_user_code = true;
+            summary.may_throw = true;
+        } else if (facts.effects[index] == JsEffectKind::MayThrow) {
+            summary.may_throw = true;
+        }
+        if (token.text == "." || token.text == "[" || token.text == "in" ||
+            token.text == "instanceof") {
+            summary.reads_state = true;
+            summary.calls_user_code = true;
+            summary.may_throw = true;
+        }
     }
     return facts;
 }
