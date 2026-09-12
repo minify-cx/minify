@@ -474,6 +474,7 @@ struct JsBinding {
     std::size_t token;
     std::size_t scope;
     JsBindingKind kind;
+    std::vector<std::size_t> declaration_tokens;
 };
 enum class JsReferenceAccess { Read, Write, ReadWrite };
 struct JsReference {
@@ -529,8 +530,18 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     auto add_binding = [&](std::size_t scope, std::size_t token, JsBindingKind kind) {
         if (binding_at_token[token]) return;
         binding_at_token[token] = true;
+        if (kind == JsBindingKind::Var || kind == JsBindingKind::Function) {
+            for (std::size_t existing : graph.scopes[scope].bindings) {
+                JsBinding& binding = graph.bindings[existing];
+                if (binding.name == tokens[token].text &&
+                    (binding.kind == JsBindingKind::Var || binding.kind == JsBindingKind::Function)) {
+                    binding.declaration_tokens.push_back(token);
+                    return;
+                }
+            }
+        }
         const std::size_t binding = graph.bindings.size();
-        graph.bindings.push_back({tokens[token].text, token, scope, kind});
+        graph.bindings.push_back({tokens[token].text, token, scope, kind, {token}});
         graph.scopes[scope].bindings.push_back(binding);
     };
     auto mark_dynamic_function = [&](std::size_t scope) {
@@ -686,11 +697,12 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
     std::unordered_set<std::size_t> declarations;
     std::vector<std::unordered_map<std::string_view, std::size_t>> bindings_by_name(graph.scopes.size());
     for (const auto& binding : graph.bindings) {
-        declarations.insert(binding.token);
+        declarations.insert(binding.declaration_tokens.begin(), binding.declaration_tokens.end());
         const std::size_t binding_id = static_cast<std::size_t>(&binding - graph.bindings.data());
         bindings_by_name[binding.scope].emplace(binding.name, binding_id);
-        if (binding.token < syntax.identifier_roles.size())
-            syntax.identifier_roles[binding.token] = JsIdentifierRole::Binding;
+        for (std::size_t token : binding.declaration_tokens)
+            if (token < syntax.identifier_roles.size())
+                syntax.identifier_roles[token] = JsIdentifierRole::Binding;
     }
     static const std::unordered_set<std::string_view> non_references = {
         "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
@@ -909,7 +921,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const std::size_t new_size = ordinary * replacement.size() +
                                          shorthand * (binding.name.size() + 1 + replacement.size());
             if (new_size >= old_size) { occupied.insert(binding.name); continue; }
-            replacements.push_back({tokens[binding.token].begin, tokens[binding.token].end, replacement});
+            for (std::size_t token : binding.declaration_tokens)
+                replacements.push_back({tokens[token].begin, tokens[token].end, replacement});
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
                 const JsReference& reference = graph.references[reference_id];
                 const bool shorthand = reference.token < syntax.identifier_roles.size() &&

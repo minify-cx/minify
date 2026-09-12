@@ -712,6 +712,8 @@ int main() {
     eq(structured,"function total($){const _=$*2;return _}","structured local binding renaming");
     expect(minify::javascript("function total(longValue=1,otherValue=2){let firstValue=longValue,secondValue=otherValue;return firstValue+secondValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total($=1,_=2){let a=$,b=_;return a+b}","structured simple default and comma binding discovery");
+    expect(minify::javascript("function total(){var repeatedValue=1;var repeatedValue;return repeatedValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total(){var $=1;var $;return $}","structured merged var declaration identity");
     expect(minify::javascript("function keep(longName){return {longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{longName:$}}","structured shorthand-aware printing");
     expect(minify::javascript("function keep(longName){return {...longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
