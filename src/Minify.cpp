@@ -1141,6 +1141,32 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_unused_local_vars(
+    const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
+    const JsSemanticFacts& facts) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t binding_id = 0; binding_id < graph.bindings.size(); ++binding_id) {
+        const JsBinding& binding = graph.bindings[binding_id];
+        if (binding.kind != JsBindingKind::Var || binding.scope >= graph.scopes.size() ||
+            graph.scopes[binding.scope].kind != JsScopeKind::Function ||
+            graph.scopes[binding.scope].dynamic_lookup ||
+            !graph.references_by_binding[binding_id].empty() || binding.token == 0)
+            continue;
+        const std::size_t keyword = binding.token - 1;
+        if (tokens[keyword].text != "var") continue;
+        std::size_t end = binding.token + 1;
+        if (end < tokens.size() && tokens[end].text == ";") {
+            replacements.push_back({tokens[keyword].begin, tokens[end].end, ""});
+            continue;
+        }
+        if (end + 2 < tokens.size() && tokens[end].text == "=" &&
+            facts.values[end + 1] != JsValueKind::Unknown &&
+            tokens[end + 2].text == ";")
+            replacements.push_back({tokens[keyword].begin, tokens[end + 2].end, ""});
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_literal_iifes(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
@@ -2597,7 +2623,12 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens, facts));
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
-                if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin)) append(plan_js_var_declaration_joins(tokens));
+                auto unused_vars = pass_enabled(JavaScriptOptimizationPass::UnusedBinding)
+                    ? plan_js_unused_local_vars(tokens, scopes, facts)
+                    : std::vector<JsReplacement>{};
+                if (!unused_vars.empty()) append(std::move(unused_vars));
+                else if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
+                    append(plan_js_var_declaration_joins(tokens));
                 if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens, facts));
                 if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
                     append(plan_js_property_mangling(tokens, *property_allowlist));
@@ -2605,7 +2636,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
                     if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                     return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
-                                             false, false, false, nullptr, disabled_passes);
+                                             true, true, true, property_allowlist,
+                                             disabled_passes);
                 }
             }
         }

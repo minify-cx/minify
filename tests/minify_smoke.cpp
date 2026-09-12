@@ -764,9 +764,13 @@ int main() {
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
     expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"function f(){var $,_;return 1}","aggressive adjacent var declaration join");
+    eq(aggressive,"function f(){return 1}","aggressive unused var elimination before declaration joining");
     expect(minify::javascript("function f(){var first=call(1);var second=call(2);return first+second;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){var $=call(1),_=call(2);return $+_}","aggressive initialized var declaration join");
+    expect(minify::javascript("function f(){var unusedValue=42;var emptyValue;return 7;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(){return 7}","aggressive unused pure local var elimination");
+    expect(minify::javascript("function f(){var unusedValue=sideEffect();return 7;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(){var $=sideEffect();return 7}","aggressive effectful unused initializer preservation");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
     minify::Options bisect_options(minify::OptimizationLevel::Aggressive);
