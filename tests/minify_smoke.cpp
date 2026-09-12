@@ -755,12 +755,16 @@ int main() {
     eq(aggressive,"const n=!0?sideEffect():456","aggressive effectful conditional exclusion");
     expect(minify::javascript("const n=false??true?0:42;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=!1?" "?!0?0:42","aggressive nested conditional precedence exclusion");
+    expect(minify::javascript("const a=true&&longValue;const b=false||otherValue;const c=false&&unusedValue;const d=true||unusedValue;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const a=longValue;const b=otherValue;const c=!1;const d=!0","aggressive constant logical simplification");
     expect(minify::javascript("function f(){return 7;debugger;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
     expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){var $,_;return 1}","aggressive adjacent var declaration join");
+    expect(minify::javascript("function f(){var first=call(1);var second=call(2);return first+second;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(){var $=call(1),_=call(2);return $+_}","aggressive initialized var declaration join");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
     minify::Options bisect_options(minify::OptimizationLevel::Aggressive);

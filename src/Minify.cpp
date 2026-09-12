@@ -1025,6 +1025,37 @@ std::vector<JsReplacement> plan_js_constant_conditionals(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_constant_logical_expressions(
+    const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
+    std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string_view> safe_prefixes = {
+        "(", "[", "{", "=", ",", ":", ";", "return", "throw", "case"
+    };
+    static const std::unordered_set<std::string_view> expression_ends = {
+        ";", ",", ")", "]", "}", ":"
+    };
+    for (std::size_t i = 0; i + 3 < tokens.size(); ++i) {
+        const bool value = tokens[i].text == "true";
+        if (!value && tokens[i].text != "false") continue;
+        const bool and_operator = tokens[i + 1].text == "&" && tokens[i + 2].text == "&";
+        const bool or_operator = tokens[i + 1].text == "|" && tokens[i + 2].text == "|";
+        const bool nullish_operator = tokens[i + 1].text == "?" && tokens[i + 2].text == "?";
+        if (!and_operator && !or_operator && !nullish_operator) continue;
+        if (i && !safe_prefixes.count(tokens[i - 1].text)) continue;
+        if (i + 4 < tokens.size() && !expression_ends.count(tokens[i + 4].text)) continue;
+        const JsToken& right = tokens[i + 3];
+        if (facts.values[i + 3] == JsValueKind::Unknown &&
+            right.kind != JsTokenKind::Identifier) continue;
+        const bool select_right = (and_operator && value) || (or_operator && !value);
+        const JsToken& selected = select_right ? right : tokens[i];
+        if (selected.text.size() < tokens[i + 3].end - tokens[i].begin)
+            replacements.push_back({tokens[i].begin, tokens[i + 3].end,
+                                    std::string(selected.text)});
+        i += 3;
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_unreachable_debuggers(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
@@ -1064,12 +1095,26 @@ std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToke
 
 std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsToken>& tokens) {
     std::vector<JsReplacement> replacements;
-    for (std::size_t i = 0; i + 5 < tokens.size(); ++i) {
-        if (tokens[i].text != "var" || tokens[i + 1].kind != JsTokenKind::Identifier ||
-            tokens[i + 2].text != ";" || tokens[i + 3].text != "var" ||
-            tokens[i + 4].kind != JsTokenKind::Identifier || tokens[i + 5].text != ";") continue;
-        replacements.push_back({tokens[i + 2].begin, tokens[i + 3].end, ","});
-        i += 3;
+    for (std::size_t declaration = 0; declaration + 4 < tokens.size(); ++declaration) {
+        if (tokens[declaration].text != "var" ||
+            tokens[declaration + 1].kind != JsTokenKind::Identifier) continue;
+        unsigned parens = 0, brackets = 0, braces = 0;
+        for (std::size_t end = declaration + 2; end + 2 < tokens.size(); ++end) {
+            const std::string_view text = tokens[end].text;
+            if (text == "(") ++parens;
+            else if (text == ")" && parens) --parens;
+            else if (text == "[") ++brackets;
+            else if (text == "]" && brackets) --brackets;
+            else if (text == "{") ++braces;
+            else if (text == "}" && braces) --braces;
+            if (parens || brackets || braces || text != ";") continue;
+            if (tokens[end + 1].text == "var" &&
+                tokens[end + 2].kind == JsTokenKind::Identifier) {
+                replacements.push_back({tokens[end].begin, tokens[end + 1].end, ","});
+                declaration = end + 1;
+            }
+            break;
+        }
     }
     return replacements;
 }
@@ -2524,7 +2569,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     replacements.insert(replacements.end(), more.begin(), more.end());
                 };
                 if (pass_enabled(JavaScriptOptimizationPass::ConstantFold)) append(plan_js_constant_folding(tokens));
-                if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) append(plan_js_constant_conditionals(tokens, facts));
+                if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) {
+                    append(plan_js_constant_conditionals(tokens, facts));
+                    append(plan_js_constant_logical_expressions(tokens, facts));
+                }
                 if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens, facts));
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
                 if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin)) append(plan_js_var_declaration_joins(tokens));
