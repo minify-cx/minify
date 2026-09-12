@@ -100,6 +100,7 @@ test-aggressive-differential:
 
 test-real-bundles:
 	bash tests/minify_real_bundle_syntax.sh
+	bash tests/minify_real_bundle_semantics.sh
 
 test-jsx:
 	bash tests/minify_jsx_generated.sh
