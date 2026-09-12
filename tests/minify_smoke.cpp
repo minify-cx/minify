@@ -788,6 +788,8 @@ int main() {
     expect(original_signature.find("O")!=std::string::npos&&original_signature.find("R")!=std::string::npos&&original_signature.find("G")!=std::string::npos&&original_signature.find("D")!=std::string::npos,"construction and spread inventory");
     expect(minify::javascript_ir_signature("const {a} = source;let [b]=items;function f(c=next(),...rest){}",original_signature,err),err);
     expect(original_signature.find("H")!=std::string::npos&&original_signature.find("I")!=std::string::npos,"destructuring and default inventory");
+    expect(minify::javascript_effect_signature("const f=function(){};class C extends base{static{x()}[key]=value}",original_signature,err),err);
+    expect(original_signature.find("A;")!=std::string::npos,"function and class allocation effects");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

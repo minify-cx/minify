@@ -268,7 +268,9 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
         if (token.text == "return" || token.text == "throw" || token.text == "break" ||
             token.text == "continue") summary.terminates_abruptly = true;
         if (token.text == "await" || token.text == "yield") summary.suspends = true;
-        if (token.text == "new") summary.allocates_identity = true;
+        if (token.text == "new" || token.text == "function" || token.text == "class")
+            summary.allocates_identity = true;
+        if (token.text == "class" || token.text == "extends") summary.may_throw = true;
         if (token.text == "for" && index + 1 < tokens.size()) summary.iterates = true;
         if (token.text == "!" || token.text == "&&" || token.text == "||" || token.text == "?")
             facts.conversions[index] = JsConversionKind::ToBoolean;
