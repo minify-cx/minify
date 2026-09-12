@@ -85,19 +85,22 @@ std::string shorten_js_boolean(const std::string& token, bool expression_safe) {
 }
 
 enum class JsTokenKind { Identifier, Punctuator, Number, String, Regex, Template };
+enum class JsBraceKind { Unknown, Block, Object };
 
 struct JsToken {
     JsTokenKind kind;
     std::string text;
     std::size_t begin;
     std::size_t end;
+    JsBraceKind brace_kind = JsBraceKind::Unknown;
 };
 
 struct JsTokenRecorder {
     const std::string& source;
     std::vector<JsToken>& tokens;
-    void record(JsTokenKind kind, std::size_t begin, std::size_t end) {
-        tokens.push_back({kind, source.substr(begin, end - begin), begin, end});
+    void record(JsTokenKind kind, std::size_t begin, std::size_t end,
+                JsBraceKind brace_kind = JsBraceKind::Unknown) {
+        tokens.push_back({kind, source.substr(begin, end - begin), begin, end, brace_kind});
     }
 };
 
@@ -148,6 +151,9 @@ bool js_precedes_block(const std::vector<JsToken>& tokens, std::size_t open) {
 JsGroupRole js_group_role(const std::vector<JsToken>& tokens, JsSyntaxKind kind,
                           std::size_t open) {
     if (kind == JsSyntaxKind::Brackets) return JsGroupRole::ArrayLiteral;
+    if (kind == JsSyntaxKind::Braces && tokens[open].brace_kind != JsBraceKind::Unknown)
+        return tokens[open].brace_kind == JsBraceKind::Block
+            ? JsGroupRole::Block : JsGroupRole::ObjectLiteral;
     if (kind == JsSyntaxKind::Braces)
         return js_precedes_block(tokens, open) ? JsGroupRole::Block : JsGroupRole::ObjectLiteral;
     if (kind != JsSyntaxKind::Parentheses) return JsGroupRole::Unknown;
@@ -1430,8 +1436,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
     if (collect_tokens) tokens.reserve(input.size() / 4);
     JsTokenRecorder token_recorder{input, tokens};
     JsTokenRecorder* recorder = collect_tokens ? &token_recorder : nullptr;
-    auto record_token = [&](JsTokenKind kind, std::size_t begin, std::size_t end) {
-        if (recorder) recorder->record(kind, begin, end);
+    auto record_token = [&](JsTokenKind kind, std::size_t begin, std::size_t end,
+                            JsBraceKind brace_kind = JsBraceKind::Unknown) {
+        if (recorder) recorder->record(kind, begin, end, brace_kind);
     };
     std::string before_semicolon_token;
     bool pending_class_brace = false;
@@ -1780,7 +1787,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 (pending_function_brace && pending_function_expression);
             block_braces.push_back(expression_body ? false : is_block);
             output.push_back(c);
-            record_token(JsTokenKind::Punctuator, i, i + 1);
+            record_token(JsTokenKind::Punctuator, i, i + 1,
+                         is_block ? JsBraceKind::Block : JsBraceKind::Object);
             pending_class_brace = false;
             pending_class_expression = false;
             pending_function_brace = false;
