@@ -198,6 +198,10 @@ enum class JsFunctionContext {
     None, Ordinary, Async, Generator, AsyncGenerator, Arrow, Method, Getter,
     Setter, Constructor, Class, StaticBlock
 };
+enum class JsModuleRole {
+    None, ImportKeyword, ImportBinding, ImportSource, DynamicImport,
+    ExportKeyword, ExportLocal, ExportedName, ReExportSource, ExportAll
+};
 enum class JsIdentifierRole {
     Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
     Label, ImportExportName, PrivateName
@@ -220,6 +224,7 @@ struct JsConcreteSyntax {
     std::vector<unsigned char> expression_precedence;
     std::vector<JsBindingPatternKind> binding_patterns;
     std::vector<JsFunctionContext> function_contexts;
+    std::vector<JsModuleRole> module_roles;
     bool balanced = true;
 };
 
@@ -263,6 +268,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.expression_precedence.resize(tokens.size(), 0);
     syntax.binding_patterns.resize(tokens.size(), JsBindingPatternKind::None);
     syntax.function_contexts.resize(tokens.size(), JsFunctionContext::None);
+    syntax.module_roles.resize(tokens.size(), JsModuleRole::None);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -297,6 +303,36 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             syntax.children.emplace_back();
             syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
+        }
+    }
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        if (tokens[index].text == "import") {
+            syntax.module_roles[index] = JsModuleRole::ImportKeyword;
+            if (index + 1 < tokens.size() && tokens[index + 1].text == "(") {
+                syntax.module_roles[index] = JsModuleRole::DynamicImport;
+                continue;
+            }
+            bool after_from = false;
+            for (std::size_t cursor = index + 1; cursor < tokens.size() && tokens[cursor].text != ";"; ++cursor) {
+                if (tokens[cursor].text == "from") after_from = true;
+                else if (tokens[cursor].kind == JsTokenKind::String)
+                    syntax.module_roles[cursor] = JsModuleRole::ImportSource;
+                else if (!after_from && tokens[cursor].kind == JsTokenKind::Identifier &&
+                         tokens[cursor].text != "as")
+                    syntax.module_roles[cursor] = JsModuleRole::ImportBinding;
+            }
+        } else if (tokens[index].text == "export") {
+            syntax.module_roles[index] = JsModuleRole::ExportKeyword;
+            bool after_as = false, after_from = false;
+            for (std::size_t cursor = index + 1; cursor < tokens.size() && tokens[cursor].text != ";"; ++cursor) {
+                if (tokens[cursor].text == "*") syntax.module_roles[cursor] = JsModuleRole::ExportAll;
+                else if (tokens[cursor].text == "as") after_as = true;
+                else if (tokens[cursor].text == "from") after_from = true;
+                else if (after_from && tokens[cursor].kind == JsTokenKind::String)
+                    syntax.module_roles[cursor] = JsModuleRole::ReExportSource;
+                else if (tokens[cursor].kind == JsTokenKind::Identifier)
+                    syntax.module_roles[cursor] = after_as ? JsModuleRole::ExportedName : JsModuleRole::ExportLocal;
+            }
         }
     }
     for (std::size_t index = 0; index < tokens.size(); ++index) {
