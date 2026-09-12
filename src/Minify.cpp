@@ -1586,6 +1586,29 @@ std::vector<JsReplacement> plan_js_unreachable_debuggers(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_unreachable_literal_statements(
+    const std::vector<JsToken>& tokens, const JsSemanticFacts& facts,
+    const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 3 < tokens.size(); ++i) {
+        if (facts.completions[i] != JsCompletionKind::Return &&
+            facts.completions[i] != JsCompletionKind::Throw) continue;
+        std::size_t terminator = i + 1;
+        while (terminator < tokens.size() && tokens[terminator].text != ";" &&
+               tokens[terminator].text != "}") ++terminator;
+        if (terminator + 2 >= tokens.size() || tokens[terminator].text != ";" ||
+            tokens[terminator + 2].text != ";" ||
+            facts.values[terminator + 1] == JsValueKind::Unknown) continue;
+        const std::size_t first_node = syntax.node_at_token[terminator];
+        const std::size_t second_node = syntax.node_at_token[terminator + 1];
+        if (syntax.nodes[first_node].parent != syntax.nodes[second_node].parent) continue;
+        replacements.push_back({tokens[terminator + 1].begin,
+                                tokens[terminator + 2].end, ""});
+        i = terminator + 2;
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_return_conditionals(const std::vector<JsToken>& tokens) {
     std::vector<JsReplacement> replacements;
     for (std::size_t i = 0; i + 9 < tokens.size(); ++i) {
@@ -3134,6 +3157,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) {
                     append(plan_js_unreachable_debuggers(tokens, facts));
+                    append(plan_js_unreachable_literal_statements(tokens, facts, syntax));
                     append(plan_js_return_conditionals(tokens));
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));

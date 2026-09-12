@@ -776,6 +776,8 @@ int main() {
     eq(aggressive,"const a=longValue;const b=otherValue;const c=!1;const d=!0","aggressive constant logical simplification");
     expect(minify::javascript("function f(){return 7;debugger;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
+    expect(minify::javascript("function f(){return 7;42;'unused';}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function f(){return 7}","aggressive unreachable literal statement elimination");
     expect(minify::javascript("function choose(conditionValue){if(conditionValue)return firstValue;return secondValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function choose($){return $?firstValue:secondValue}","aggressive return conditional compression");
     expect(minify::javascript("function choose(conditionValue){if(conditionValue)return 1;else return 2;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
