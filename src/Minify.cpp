@@ -1287,7 +1287,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 before_semicolon_token != ")control" &&
                 before_semicolon_token != ":" &&
                 before_semicolon_token != "{" &&
-                before_semicolon_token != ";") {
+                before_semicolon_token != ";" &&
+                before_semicolon_token != "else") {
                 output.pop_back();
             }
             const std::size_t token_begin = output.size();
@@ -1330,7 +1331,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         before_semicolon_token != ")control" &&
         before_semicolon_token != ":" &&
         before_semicolon_token != "{" &&
-        before_semicolon_token != ";") {
+        before_semicolon_token != ";" &&
+        before_semicolon_token != "else") {
         output.pop_back();
     }
     error.clear();

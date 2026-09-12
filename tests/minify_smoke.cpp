@@ -150,6 +150,9 @@ int main() {
     expect(minify::javascript("function f(){while(test);label:;}for(;;);", out, err), err);
     eq(out, "function f(){while(test);label:;}for(;;);",
        "JavaScript meaningful empty statements preserved");
+    expect(minify::javascript("if(test)function f(){}else;", out, err), err);
+    eq(out, "if(test)function f(){}else;",
+       "JavaScript Annex B empty else statement preserved");
     expect(minify::javascript("const a=true,b=false;return true;", out, err), err);
     eq(out, "const a=!0,b=!1;return!0", "JavaScript boolean literal shortening");
     expect(minify::javascript("const x={true:1,false(){return false}};x.true;", out, err), err);

@@ -27,6 +27,8 @@ run_case(){
 run_case regex_division "const s='https://x'; console.log(/https?:\\/\\//.test(s), 12 / 3 / 2);"
 run_case asi $'function f(){return\n{x:1}}; console.log(String(f()));'
 run_case empty_while "let x=0; while(x++<1); console.log(x);"
+run_case empty_else "let x=0;if(true)x=1;else;console.log(x);"
+run_case annex_b_empty_else "if(false)function f(){}else;console.log(typeof f);"
 run_case unicode "const π=3,café=2; console.log(π+café);"
 run_case number_member "console.log(1 .toString(), 1e3 .toString());"
 run_case templates 'const x=2; console.log(`a ${x > 1 ? `b ${x}` : "c"}`);'
