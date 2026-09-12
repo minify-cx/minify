@@ -701,6 +701,13 @@ int main() {
            conservative.find("{nested+1}") != std::string::npos,
            "JSX JavaScript regions were not conservatively minified");
 
+    expect(minify::javascript("function total(longLeft,longRight){return longLeft+longRight;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total($,_){return $+_}","structured simple parameter renaming");
+    expect(minify::javascript("function keep(longName){return {longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keep(longName){return{longName}}","structured object scope exclusion");
+    expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
+
 
     std::cout << "Standalone minifier smoke test passed\n";
 }

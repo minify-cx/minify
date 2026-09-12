@@ -18,7 +18,7 @@ all: $(TARGET)
 $(TARGET): cli/main.cpp $(LIBSRC) include/minify/Minify.h src/Json.h
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) cli/main.cpp $(LIBSRC) $(LDFLAGS) -o $@
 
-test: test-smoke test-node test-module test-generated test-scope-semantics test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz
+test: test-smoke test-node test-module test-generated test-scope-semantics test-structured test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz
 
 check-nift-sync:
 	@test -n "$(NIFT_MINIFYPP_DIR)" || { echo "set NIFT_MINIFYPP_DIR to Nift's minifypp directory" >&2; exit 2; }
@@ -92,6 +92,9 @@ test-generated:
 test-scope-semantics:
 	bash tests/minify_scope_semantics.sh
 
+test-structured:
+	bash tests/minify_structured_semantics.sh
+
 test-jsx:
 	bash tests/minify_jsx_generated.sh
 
@@ -104,7 +107,7 @@ test-cli: $(TARGET)
 clean:
 	rm -rf $(TESTDIR) $(TARGET)
 
-.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark distcheck clean
+.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark distcheck clean
 
 test-formats:
 	bash tests/minify_format_idempotence.sh

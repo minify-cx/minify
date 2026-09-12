@@ -214,6 +214,7 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
 }
 
 struct JsPrintResult { std::string text; bool ordered = true; };
+std::string js_short_name(std::size_t index);
 JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::vector<JsToken>& tokens) {
     JsPrintResult result; result.text.reserve(source.size()); std::size_t cursor = 0;
     for (const auto& token : tokens) {
@@ -221,6 +222,39 @@ JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::v
         result.text.append(source,cursor,token.begin-cursor); result.text.append(source,token.begin,token.end-token.begin); cursor=token.end;
     }
     result.text.append(source,cursor,source.size()-cursor); return result;
+}
+
+std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
+    std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string> unsafe_names={"await","yield","arguments","eval"};
+    for(std::size_t si=1;si<graph.scopes.size();++si){
+        const JsScope& scope=graph.scopes[si];
+        if(scope.kind!=JsScopeKind::Function||scope.dynamic_lookup||scope.last_token>tokens.size()||!scope.first_token)continue;
+        bool unsafe=false;
+        for(std::size_t i=scope.first_token+1;i+1<scope.last_token;++i)
+            if(tokens[i].text=="{"||tokens[i].text=="}"||tokens[i].text=="arguments"||tokens[i].text=="eval"||tokens[i].text=="with"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
+        if(unsafe||tokens[scope.first_token-1].text!=")")continue;
+        std::size_t depth=1,open=scope.first_token-1;
+        while(open&&depth){--open;if(tokens[open].text==")")++depth;else if(tokens[open].text=="(")--depth;}
+        if(depth)continue;
+        bool simple=true;std::vector<std::size_t> bindings;
+        for(std::size_t i=open+1;i+1<scope.first_token;++i){if((i-open)%2==1){if(tokens[i].kind!=JsTokenKind::Identifier)simple=false;else bindings.push_back(i);}else if(tokens[i].text!=",")simple=false;}
+        if(!simple||bindings.empty())continue;
+        std::unordered_set<std::string> occupied,unique;
+        for(std::size_t i=open+1;i+1<scope.last_token;++i)if(tokens[i].kind==JsTokenKind::Identifier)occupied.insert(tokens[i].text);
+        for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
+        if(!simple)continue;
+        std::size_t ni=0;
+        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text==original)replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,replacement});}occupied.insert(replacement);}
+    }
+    return replacements;
+}
+
+std::string apply_js_replacements(const std::string& source,std::vector<JsReplacement> replacements){
+    std::sort(replacements.begin(),replacements.end(),[](const auto& a,const auto& b){return a.begin<b.begin;});
+    std::string result;result.reserve(source.size());std::size_t cursor=0;
+    for(const auto& r:replacements){if(r.begin<cursor||r.end>source.size())continue;result.append(source,cursor,r.begin-cursor);result+=r.text;cursor=r.end;}
+    result.append(source,cursor,source.size()-cursor);return result;
 }
 
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
@@ -1129,7 +1163,7 @@ bool html(const std::string& input, std::string& output, std::string& error) {
 // line terminators remain available to automatic semicolon insertion.
 static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
-                              bool collect_tokens = false) {
+                              bool collect_tokens = false, bool structured_rewrite = false) {
     output.clear();
     output.reserve(input.size());
 
@@ -1565,6 +1599,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
+        if(structured_rewrite&&syntax.balanced&&printed.ordered&&printed.text==input){auto replacements=plan_safe_js_parameter_renaming(tokens,scopes);if(!replacements.empty()){const std::string rewritten=apply_js_replacements(input,std::move(replacements));return minify_javascript(rewritten,output,error,preserve_jsx_boundaries,false,false);}}
     }
     error.clear();
     return true;
@@ -1577,6 +1612,7 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
 bool javascript(const std::string& input, std::string& output, std::string& error,
                 const Options& options) {
     return minify_javascript(input, output, error, false,
+                             options.optimization != OptimizationLevel::Conservative,
                              options.optimization != OptimizationLevel::Conservative);
 }
 
