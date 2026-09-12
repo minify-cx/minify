@@ -768,6 +768,8 @@ int main() {
     expect(original_signature.find("S")!=std::string::npos,"IR statement inventory");
     expect(minify::javascript_ir_signature("async function* f(a=call()){class C{static{}get x(){return a}}}",original_signature,err),err);
     expect(original_signature.find("F")!=std::string::npos&&original_signature.find("I")!=std::string::npos,"IR function and initialization inventory");
+    expect(minify::javascript_ir_signature("import x from'x';export{x};function f(){eval('x')}",original_signature,err),err);
+    expect(original_signature.find("M")!=std::string::npos&&original_signature.find("B")!=std::string::npos,"IR module and dynamic-scope inventory");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

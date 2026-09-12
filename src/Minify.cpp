@@ -1029,7 +1029,8 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
 }
 
 std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
-                                  const JsConcreteSyntax& syntax) {
+                                  const JsConcreteSyntax& syntax,
+                                  const JsScopeGraph& graph) {
     std::string signature;
     signature.reserve(syntax.nodes.size() * 12);
     for (std::size_t id = 0; id < syntax.nodes.size(); ++id) {
@@ -1066,6 +1067,14 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
         if (syntax.parameter_initializer_tokens[token])
             signature += "I" + std::to_string(token) + ";";
     }
+    for (std::size_t token = 0; token < tokens.size(); ++token)
+        if (syntax.module_roles[token] != JsModuleRole::None)
+            signature += "M" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(syntax.module_roles[token])) + ";";
+    for (std::size_t scope = 0; scope < graph.scopes.size(); ++scope)
+        if (graph.scopes[scope].dynamic_lookup || graph.scopes[scope].descendant_dynamic_lookup)
+            signature += "B" + std::to_string(scope) + ":" +
+                (graph.scopes[scope].dynamic_lookup ? "D" : "d") + ";";
     return signature;
 }
 
@@ -3282,7 +3291,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         if (effect_signature)
             *effect_signature = build_js_effect_signature(tokens, scopes, facts);
         if (ir_signature)
-            *ir_signature = build_js_ir_signature(tokens, syntax);
+            *ir_signature = build_js_ir_signature(tokens, syntax, scopes);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
