@@ -28,6 +28,7 @@ int main(int argc, char** argv) {
         {"html", minify::Format::Html, "<section class=\"card\"> <h2> Title </h2> <p>alpha <b>beta</b></p> </section>\n"},
         {"css", minify::Format::Css, "@container card (width > 20rem) { .item { width: calc(100% - 2rem); color: rgb(10 20 30 / 80%); } }\n"},
         {"javascript", minify::Format::JavaScript, "const value = /[<>]/.test(text) ? object?.item ?? 0 : total / 2; console.log(value);\n"},
+        {"javascript-scope", minify::Format::JavaScript, "function combine(longLeft,longRight){ return longLeft + longRight; }\n"},
         {"jsx", minify::Format::Jsx, "const view = <Card<Map<string,number>> value={data?.item ?? 0}><span>{/[<>]/.test(text) ? 'a' : 'b'}</span></Card>;\n"},
         {"json", minify::Format::Json, "{\"name\":\"entry\",\"enabled\":true,\"items\":[1,2,3],\"meta\":{\"value\":null}}\n"},
         {"xml", minify::Format::Xml, "<entry xmlns:x=\"urn:x\"><x:name> alpha  beta </x:name><![CDATA[a < b]]></entry>\n"},

@@ -8,7 +8,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 printf 'const  x =  1 ;\n' >"$TMP/app.js"
 "$BIN" "$TMP/app.js" >/dev/null
-grep -Fxq 'const x=1;' "$TMP/app.min.js"
+grep -Fxq 'const x=1' "$TMP/app.min.js"
 grep -Fxq 'const  x =  1 ;' "$TMP/app.js"
 
 printf '.x { color : red ; }\n' >"$TMP/site.css"
@@ -19,7 +19,7 @@ test ! -e "$TMP/site.min.css"
 printf 'const  executable =  true ;\n' >"$TMP/tool.js"
 chmod 755 "$TMP/tool.js"
 "$BIN" --in-place "$TMP/tool.js" >/dev/null
-grep -Fxq 'const executable=true;' "$TMP/tool.js"
+grep -Fxq 'const executable=!0' "$TMP/tool.js"
 # Executable-bit preservation is a POSIX permission contract; Windows has no
 # exec bit visible to std::filesystem, so the -x assertion is POSIX-only.
 case "$(uname -s)" in

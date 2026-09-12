@@ -94,6 +94,18 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
     return tokens.size();
 }
 
+std::string js_short_name(std::size_t index) {
+    if (index == 0) return "$";
+    if (index == 1) return "_";
+    index -= 2;
+    if (index < 26) return std::string(1, static_cast<char>('a' + index));
+    index -= 26;
+    if (index < 26) return std::string(1, static_cast<char>('A' + index));
+    index -= 26;
+    return std::string(1, static_cast<char>('a' + (index / 26) % 26)) +
+           static_cast<char>('a' + index % 26);
+}
+
 [[maybe_unused]] std::vector<JsReplacement> plan_js_parameter_mangling(
     const std::vector<JsToken>& tokens) {
     std::vector<JsReplacement> replacements;
@@ -155,22 +167,15 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
         }
         if (unsafe_scope) continue;
 
-        std::vector<std::string> names = {"$", "_"};
-        for (char c = 'a'; c <= 'z'; ++c) names.emplace_back(1, c);
-        for (char c = 'A'; c <= 'Z'; ++c) names.emplace_back(1, c);
-        for (char a = 'a'; a <= 'z'; ++a)
-            for (char b = 'a'; b <= 'z'; ++b)
-                names.push_back(std::string(1, a) + b);
         std::size_t next_name = 0;
         std::unordered_set<std::string> handled;
         for (std::size_t parameter = 0; parameter < params.size(); ++parameter) {
             const std::string& original = params[parameter];
             if (!handled.insert(original).second) continue;
-            while (next_name < names.size() &&
-                   (occupied.count(names[next_name]) != 0 ||
-                    reserved_words.count(names[next_name]) != 0)) ++next_name;
-            if (next_name == names.size()) break;
-            const std::string replacement = names[next_name++];
+            std::string replacement;
+            do replacement = js_short_name(next_name++);
+            while (occupied.count(replacement) != 0 ||
+                   reserved_words.count(replacement) != 0);
             if (replacement.size() >= original.size()) continue;
 
             bool shorthand = false;
@@ -924,6 +929,15 @@ static bool minify_javascript(const std::string& input, std::string& output,
     std::vector<bool> block_braces;
     std::string last_token;
     std::vector<JsToken> tokens;
+    const bool collect_scope_tokens = input.find("function") != std::string::npos;
+    if (collect_scope_tokens) tokens.reserve(input.size() / 4);
+    auto record_word_token = [&](const std::string& text, std::size_t begin) {
+        if (collect_scope_tokens) tokens.push_back({text, begin, output.size()});
+    };
+    auto record_punct_token = [&](char text, std::size_t begin) {
+        if (collect_scope_tokens)
+            tokens.push_back({std::string(1, text), begin, output.size()});
+    };
     std::string before_semicolon_token;
     bool pending_class_brace = false;
     bool pending_class_expression = false;
@@ -1024,7 +1038,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             else {
                 const std::size_t token_begin = output.size();
                 output += word;
-                tokens.push_back({word, token_begin, output.size()});
+                record_word_token(word, token_begin);
             }
 
             const bool was_pending_control_paren = pending_control_paren;
@@ -1103,7 +1117,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             emit_pending(c);
             const std::size_t token_begin = output.size();
             output.push_back(c);
-            tokens.push_back({"(", token_begin, output.size()});
+            record_punct_token('(', token_begin);
             control_parens.push_back(pending_control_paren);
             pending_control_paren = false;
             can_start_regex = true;
@@ -1116,7 +1130,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             emit_pending(c);
             const std::size_t token_begin = output.size();
             output.push_back(c);
-            tokens.push_back({")", token_begin, output.size()});
+            record_punct_token(')', token_begin);
             const bool was_control = !control_parens.empty() && control_parens.back();
             if (!control_parens.empty()) control_parens.pop_back();
             pending_control_paren = false;
@@ -1248,7 +1262,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             block_braces.push_back(expression_body ? false : is_block);
             const std::size_t token_begin = output.size();
             output.push_back(c);
-            tokens.push_back({"{", token_begin, output.size()});
+            record_punct_token('{', token_begin);
             pending_class_brace = false;
             pending_class_expression = false;
             pending_function_brace = false;
@@ -1275,7 +1289,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             }
             const std::size_t token_begin = output.size();
             output.push_back(c);
-            tokens.push_back({"}", token_begin, output.size()});
+            record_punct_token('}', token_begin);
             const bool was_block = block_braces.empty() ? true : block_braces.back();
             if (!block_braces.empty()) block_braces.pop_back();
             pending_control_paren = false;
@@ -1288,7 +1302,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         emit_pending(c);
         const std::size_t token_begin = output.size();
         output.push_back(c);
-        tokens.push_back({std::string(1, c), token_begin, output.size()});
+        record_punct_token(c, token_begin);
         pending_control_paren = false;
 
         if (c == ';') before_semicolon_token = last_token;
@@ -1316,14 +1330,24 @@ static bool minify_javascript(const std::string& input, std::string& output,
         before_semicolon_token != ";") {
         output.pop_back();
     }
-    auto replacements = plan_js_parameter_mangling(tokens);
+    auto replacements = tokens.empty()
+        ? std::vector<JsReplacement>()
+        : plan_js_parameter_mangling(tokens);
     std::sort(replacements.begin(), replacements.end(),
               [](const JsReplacement& left, const JsReplacement& right) {
-                  return left.begin > right.begin;
+                  return left.begin < right.begin;
               });
-    for (const auto& replacement : replacements) {
-        output.replace(replacement.begin, replacement.end - replacement.begin,
-                       replacement.text);
+    if (!replacements.empty()) {
+        std::string transformed;
+        transformed.reserve(output.size());
+        std::size_t copied = 0;
+        for (const auto& replacement : replacements) {
+            transformed.append(output, copied, replacement.begin - copied);
+            transformed += replacement.text;
+            copied = replacement.end;
+        }
+        transformed.append(output, copied, std::string::npos);
+        output.swap(transformed);
     }
     error.clear();
     return true;
