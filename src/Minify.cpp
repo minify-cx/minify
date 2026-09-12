@@ -269,7 +269,9 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
         const bool statement_label = next == ":" && !object_member &&
             (index == 0 || previous == ";" || previous == "{" || previous == "}");
         JsIdentifierRole role = JsIdentifierRole::Reference;
-        if (previous == ".") role = JsIdentifierRole::MemberProperty;
+        const bool spread = index >= 3 && tokens[index - 1].text == "." &&
+                            tokens[index - 2].text == "." && tokens[index - 3].text == ".";
+        if (previous == "." && !spread) role = JsIdentifierRole::MemberProperty;
         else if (previous == "#") role = JsIdentifierRole::PrivateName;
         else if (next == ":" && object_member_start) role = JsIdentifierRole::PropertyKey;
         else if (previous == "break" || previous == "continue" || statement_label)
@@ -521,31 +523,25 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         "return","static","super","switch","this","throw","true","try","typeof",
         "var","void","while","with","yield","arguments"
     };
-    auto has_function_ancestor = [&](std::size_t scope) {
-        for (std::size_t parent = graph.scopes[scope].parent; parent;
-             parent = graph.scopes[parent].parent)
-            if (graph.scopes[parent].kind == JsScopeKind::Function) return true;
-        return false;
-    };
     std::vector<std::unordered_map<std::string, std::size_t>> binding_counts(graph.scopes.size());
     for (const JsBinding& binding : graph.bindings)
         ++binding_counts[binding.scope][binding.name];
     const std::size_t no_unit = graph.scopes.size();
     std::vector<std::size_t> unit_of_scope(graph.scopes.size(), no_unit);
     for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
-        for (std::size_t cursor = scope; cursor; cursor = graph.scopes[cursor].parent)
-            if (graph.scopes[cursor].kind == JsScopeKind::Function)
+        for (std::size_t cursor = scope; cursor; cursor = graph.scopes[cursor].parent) {
+            if (graph.scopes[cursor].kind == JsScopeKind::Function) {
                 unit_of_scope[scope] = cursor;
+                break;
+            }
+        }
     }
     std::vector<std::vector<std::size_t>> bindings_by_unit(graph.scopes.size());
     std::vector<std::vector<std::size_t>> references_by_unit(graph.scopes.size());
     std::vector<bool> unit_dynamic(graph.scopes.size(), false);
-    std::vector<bool> unit_has_nested_function(graph.scopes.size(), false);
     for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope)
         if (unit_of_scope[scope] < graph.scopes.size()) {
             if (graph.scopes[scope].dynamic_lookup) unit_dynamic[unit_of_scope[scope]] = true;
-            if (scope != unit_of_scope[scope] && graph.scopes[scope].kind == JsScopeKind::Function)
-                unit_has_nested_function[unit_of_scope[scope]] = true;
         }
     for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
         const std::size_t unit = unit_of_scope[graph.bindings[binding].scope];
@@ -557,11 +553,12 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     }
     for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
-        if (function.kind != JsScopeKind::Function || has_function_ancestor(unit) ||
+        if (function.kind != JsScopeKind::Function ||
             function.last_token > tokens.size() || !function.first_token) continue;
 
-        bool unsafe = unit_dynamic[unit] || unit_has_nested_function[unit];
+        bool unsafe = unit_dynamic[unit];
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
+            if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
             if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
                 (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
                 unsafe = true;
@@ -590,8 +587,13 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
                                    candidate.kind == JsBindingKind::Catch;
+            const bool captured = std::any_of(graph.references_by_binding[binding].begin(),
+                graph.references_by_binding[binding].end(), [&](std::size_t reference) {
+                    return graph.references[reference].captured;
+                });
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
-            if (supported && duplicates == 1 && !reserved.count(candidate.name))
+            if (supported && !captured && duplicates == 1 && !reserved.count(candidate.name) &&
+                candidate.name.size() > 2)
                 eligible.push_back(binding);
             else
                 occupied.insert(candidate.name);
