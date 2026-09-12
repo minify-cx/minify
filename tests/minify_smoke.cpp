@@ -738,6 +738,12 @@ int main() {
     eq(structured,"function nested({firstName:$,deep:{secondName:_},...a},[b]){return $+_+a.length+b}","structured recursive destructuring parameter mangling");
     expect(minify::javascript("function declarations(source){const {longProperty:localValue,nested:{deepValue},...restValues}=source;return localValue+deepValue+restValues.count}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function declarations($){const{longProperty:_,nested:{deepValue:a},...b}=$;return _+a+b.count}","structured recursive destructuring declaration mangling");
+    expect(minify::javascript("function entries(items){for(const [longKey,longValue] of items){use(longKey,longValue)}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function entries($){for(const[_,a]of $){use(_,a)}}","structured for-of destructuring binding mangling");
+    expect(minify::javascript("function keys(object){for(const {longKey} in object){use(longKey)}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keys($){for(const{longKey:_}in $){use(_)}}","structured for-in destructuring binding mangling");
+    expect(minify::javascript("function loops(items){for(let longIndex=0;longIndex<items.length;longIndex++){use(longIndex)}let longIndex=3;return longIndex}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function loops($){for(let longIndex=0;longIndex<$.length;longIndex++){use(longIndex)}let longIndex=3;return longIndex}","structured shadowed for-head fallback");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
