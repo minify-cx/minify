@@ -1032,12 +1032,17 @@ std::vector<JsReplacement> plan_js_undefined_literals(
     std::vector<JsReplacement> replacements;
     for (const JsReference& reference : graph.references) {
         if (reference.token >= tokens.size() || tokens[reference.token].text != "undefined" ||
-            reference.binding < graph.bindings.size()) continue;
+            reference.binding < graph.bindings.size() ||
+            reference.access != JsReferenceAccess::Read) continue;
         const JsIdentifierRole role = reference.token < syntax.identifier_roles.size()
             ? syntax.identifier_roles[reference.token] : JsIdentifierRole::Unknown;
         if (role != JsIdentifierRole::Reference) continue;
+        const std::string_view next = reference.token + 1 < tokens.size()
+            ? tokens[reference.token + 1].text : std::string_view();
+        const bool member_or_call = next == "." || next == "[" || next == "(" ||
+                                    next == "`" || next == "?";
         replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
-                                "void 0"});
+                                member_or_call ? "(void 0)" : "void 0"});
     }
     return replacements;
 }
