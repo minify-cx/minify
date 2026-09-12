@@ -134,10 +134,11 @@ fs::path minified_path(const fs::path& input) {
 void help() {
     std::cout
         << "minify - conservative multi-format minifier\n\n"
-        << "Usage: minify [--in-place|-i] [--structured] [--structured-jsx-expressions] <files...>\n\n"
+        << "Usage: minify [--in-place|-i] [--structured|--aggressive] [--structured-jsx-expressions] <files...>\n\n"
         << "By default foo.js is written to foo.min.js.\n"
         << "Use --in-place (or -i) to overwrite the source file.\n"
         << "Use --structured to enable proven-safe JavaScript binding renames.\n"
+        << "Use --aggressive to enable the explicitly opt-in compression contract.\n"
         << "Use --structured-jsx-expressions to apply them inside parsed JSX expressions.\n";
 }
 }
@@ -155,6 +156,7 @@ int main(int argc, char** argv) {
         }
         if (arg == "--in-place" || arg == "-i") { in_place = true; continue; }
         if (arg == "--structured") { options.optimization = minify::OptimizationLevel::Structured; continue; }
+        if (arg == "--aggressive") { options.optimization = minify::OptimizationLevel::Aggressive; continue; }
         if (arg == "--structured-jsx-expressions") {
             options.optimization = minify::OptimizationLevel::Structured;
             options.structured_jsx_expressions = true;

@@ -82,6 +82,16 @@ object-shorthand expansion, JSX expression gating, and the explicit CLI release
 gate. The structured mode remains opt-in while coverage expands to more binding
 forms and transformations; aggressive compression remains reserved and inactive.
 
+## Optional aggressive compression
+
+`--aggressive` is an explicit CLI/API contract and is never selected by legacy
+calls, `--structured`, or JSX defaults. It preserves successful execution and
+produced values for supported transformations, but may change source shape,
+stack/diagnostic detail and otherwise unobservable intermediate allocations.
+Dynamic scope, unsupported syntax and transformations without a local proof are
+left unchanged. Each aggressive transform is independently testable and must
+fall back to structured output when its proof conditions are not met.
+
 ## Current adversarial gates
 
 - Independent complete external checkpoints: CSS 31,155/31,155, HTML

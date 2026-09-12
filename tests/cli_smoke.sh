@@ -15,6 +15,10 @@ printf 'function total(longLeft,longRight){ return longLeft + longRight; }\n' >"
 "$BIN" --structured "$TMP/structured.js" >/dev/null
 grep -Fxq 'function total($,_){return $+_}' "$TMP/structured.min.js"
 
+cp "$TMP/structured.js" "$TMP/aggressive.js"
+"$BIN" --aggressive "$TMP/aggressive.js" >/dev/null
+grep -Fxq 'function total($,_){return $+_}' "$TMP/aggressive.min.js"
+
 printf 'const view = <Card value={(function total(longName){return longName})(3)} />;\n' >"$TMP/structured.jsx"
 "$BIN" --structured-jsx-expressions "$TMP/structured.jsx" >/dev/null
 grep -Fxq 'const view=<Card value={(function total($){return $})(3)} />;' "$TMP/structured.min.jsx"
