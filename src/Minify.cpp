@@ -1020,7 +1020,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                                             graph.references_by_binding[binding].size();
             return (value.name.size() - 1) * occurrences;
         };
-        std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
+        const auto more_profitable = [&](std::size_t left, std::size_t right) {
             if (eligible.size() <= 54)
                 return graph.references_by_binding[left].size() >
                        graph.references_by_binding[right].size();
@@ -1028,13 +1028,20 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const std::size_t right_saving = estimated_saving(right);
             if (left_saving != right_saving) return left_saving > right_saving;
             return graph.bindings[left].token < graph.bindings[right].token;
-        });
+        };
+        if (eligible.size() == 2) {
+            if (more_profitable(eligible[1], eligible[0]))
+                std::swap(eligible[0], eligible[1]);
+        } else if (eligible.size() > 2) {
+            std::stable_sort(eligible.begin(), eligible.end(), more_profitable);
+        }
         const JsBindingInterferenceGraph binding_interference{graph};
 
         const JsNameAlphabet alphabet = build_js_frequency_alphabet(
             tokens, function.first_token, function.last_token, eligible.size() > 54);
 
         std::vector<std::pair<std::string, std::size_t>> allocated_names;
+        allocated_names.reserve(eligible.size());
         for (std::size_t binding_id : eligible) {
             const JsBinding& binding = graph.bindings[binding_id];
             std::string replacement;
