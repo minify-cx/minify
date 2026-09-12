@@ -1728,10 +1728,10 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             function.last_token > tokens.size() || !function.first_token) continue;
 
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
+        bool uses_arguments = false;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
-            if (tokens[i].text == "arguments")
-                unsafe = true;
+            if (tokens[i].text == "arguments") uses_arguments = true;
             // A block following a non-control parameter list is an object/class
             // method body, which the lightweight scope builder cannot yet model.
             if (i != function.first_token && tokens[i].text == "{" &&
@@ -1775,8 +1775,10 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                                    candidate.kind == JsBindingKind::Lexical ||
                                    candidate.kind == JsBindingKind::Catch;
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
+            const bool arguments_alias = uses_arguments &&
+                                         candidate.kind == JsBindingKind::Parameter;
             if (supported && duplicates == 1 && !reserved.count(candidate.name) &&
-                candidate.name.size() > 2 && !referenced_from_opaque_class)
+                candidate.name.size() > 2 && !referenced_from_opaque_class && !arguments_alias)
                 eligible.push_back(binding);
             else
                 occupied.insert(candidate.name);
