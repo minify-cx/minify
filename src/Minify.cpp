@@ -1702,6 +1702,40 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_unused_empty_vars(
+    const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
+    const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
+        const JsBinding& candidate = graph.bindings[binding];
+        if (candidate.kind != JsBindingKind::Var || candidate.scope >= graph.scopes.size() ||
+            graph.scopes[candidate.scope].kind != JsScopeKind::Function ||
+            graph.scopes[candidate.scope].dynamic_lookup ||
+            graph.scopes[candidate.scope].descendant_dynamic_lookup ||
+            candidate.declaration_tokens.size() != 1 ||
+            graph.binding_uses[binding].reads || graph.binding_uses[binding].writes ||
+            graph.binding_uses[binding].captures || candidate.token == 0 ||
+            candidate.token + 1 >= tokens.size() ||
+            tokens[candidate.token - 1].text != "var" ||
+            tokens[candidate.token + 1].text != ";") continue;
+        bool unresolved_same_name = false;
+        for (std::size_t reference : graph.unresolved_references)
+            if (tokens[graph.references[reference].token].text == candidate.name) {
+                unresolved_same_name = true;
+                break;
+            }
+        if (unresolved_same_name) continue;
+        const std::size_t node = syntax.node_at_token[candidate.token - 1];
+        const std::size_t parent = node < syntax.nodes.size()
+            ? syntax.nodes[node].parent : syntax.nodes.size();
+        if (parent >= syntax.nodes.size() || syntax.nodes[parent].role != JsGroupRole::Block)
+            continue;
+        replacements.push_back({tokens[candidate.token - 1].begin,
+                                tokens[candidate.token + 1].end, ""});
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_literal_iifes(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
@@ -3171,7 +3205,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     append(plan_js_return_conditionals(tokens));
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
-                if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
+                auto unused_vars = pass_enabled(JavaScriptOptimizationPass::UnusedBinding)
+                    ? plan_js_unused_empty_vars(tokens, scopes, syntax)
+                    : std::vector<JsReplacement>{};
+                if (!unused_vars.empty()) append(std::move(unused_vars));
+                else if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
                     append(plan_js_var_declaration_joins(tokens));
                 if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens, facts));
                 if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
