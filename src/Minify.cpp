@@ -497,6 +497,8 @@ struct JsScopeGraph {
     std::vector<std::vector<std::size_t>> references_by_binding;
     std::vector<std::vector<std::size_t>> scope_children;
     std::vector<std::size_t> containing_function;
+    std::vector<std::size_t> reference_at_token;
+    std::vector<std::size_t> unresolved_references;
 };
 
 bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
@@ -694,6 +696,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
 void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& tokens,
                            JsConcreteSyntax& syntax) {
     graph.references_by_binding.resize(graph.bindings.size());
+    graph.reference_at_token.resize(tokens.size(), tokens.size());
     std::unordered_set<std::size_t> declarations;
     std::vector<std::unordered_map<std::string_view, std::size_t>> bindings_by_name(graph.scopes.size());
     for (const auto& binding : graph.bindings) {
@@ -744,9 +747,13 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
             }
         }
         graph.references.push_back({index, containing, resolved, resolved_scope, access, captured});
+        graph.reference_at_token[index] = graph.references.size() - 1;
         if (index < syntax.identifier_roles.size() && role != JsIdentifierRole::ShorthandProperty)
             syntax.identifier_roles[index] = JsIdentifierRole::Reference;
-        if (resolved < graph.bindings.size()) graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
+        if (resolved < graph.bindings.size())
+            graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
+        else
+            graph.unresolved_references.push_back(graph.references.size() - 1);
     }
 }
 
