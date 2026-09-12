@@ -1026,6 +1026,22 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_undefined_literals(
+    const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
+    const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    for (const JsReference& reference : graph.references) {
+        if (reference.token >= tokens.size() || tokens[reference.token].text != "undefined" ||
+            reference.binding < graph.bindings.size()) continue;
+        const JsIdentifierRole role = reference.token < syntax.identifier_roles.size()
+            ? syntax.identifier_roles[reference.token] : JsIdentifierRole::Unknown;
+        if (role != JsIdentifierRole::Reference) continue;
+        replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
+                                "void 0"});
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_constant_conditionals(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
@@ -2648,7 +2664,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 auto append = [&](std::vector<JsReplacement> more) {
                     replacements.insert(replacements.end(), more.begin(), more.end());
                 };
-                if (pass_enabled(JavaScriptOptimizationPass::ConstantFold)) append(plan_js_constant_folding(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::ConstantFold)) {
+                    append(plan_js_constant_folding(tokens));
+                    append(plan_js_undefined_literals(tokens, scopes, syntax));
+                }
                 if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) {
                     append(plan_js_constant_conditionals(tokens, facts));
                     append(plan_js_constant_logical_expressions(tokens, facts));
