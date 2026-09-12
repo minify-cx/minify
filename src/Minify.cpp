@@ -546,6 +546,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             for (std::size_t cursor = index + 1; cursor < tokens.size() && tokens[cursor].text != ";"; ++cursor) {
                 if (tokens[cursor].text == "*") syntax.module_roles[cursor] = JsModuleRole::ExportAll;
                 else if (tokens[cursor].text == "as") after_as = true;
+                else if (tokens[cursor].text == ",") after_as = false;
                 else if (tokens[cursor].text == "from") after_from = true;
                 else if (after_from && tokens[cursor].kind == JsTokenKind::String)
                     syntax.module_roles[cursor] = JsModuleRole::ReExportSource;
@@ -675,7 +676,13 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
         JsIdentifierRole role = JsIdentifierRole::Reference;
         const bool spread = index >= 3 && tokens[index - 1].text == "." &&
                             tokens[index - 2].text == "." && tokens[index - 3].text == ".";
-        if (method_key) role = JsIdentifierRole::PropertyKey;
+        if (syntax.module_roles[index] == JsModuleRole::ExportLocal)
+            role = JsIdentifierRole::Reference;
+        else if (syntax.module_roles[index] == JsModuleRole::ExportedName ||
+                 syntax.module_roles[index] == JsModuleRole::ImportSource ||
+                 syntax.module_roles[index] == JsModuleRole::ReExportSource)
+            role = JsIdentifierRole::ImportExportName;
+        else if (method_key) role = JsIdentifierRole::PropertyKey;
         else if (previous == "." && !spread) role = JsIdentifierRole::MemberProperty;
         else if (previous == "#") role = JsIdentifierRole::PrivateName;
         else if (next == ":" && object_member_start) role = JsIdentifierRole::PropertyKey;
@@ -693,7 +700,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
 }
 
 enum class JsScopeKind { Script, Module, Function, Block, Class, Catch };
-enum class JsBindingKind { Parameter, Var, Lexical, Function, Class, Catch, Unknown };
+enum class JsBindingKind { Parameter, Var, Lexical, Function, Class, Catch, Import, Unknown };
 struct JsBinding {
     std::string_view name;
     std::size_t token;
@@ -1063,6 +1070,35 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             if (text == "(" || text == "[" || text == "{") ++nested;
             else if ((text == ")" || text == "]" || text == "}") && nested) --nested;
             else if (text == "," && nested == 0) binding_position = true;
+        }
+    }
+    // Module imports declare local bindings, but imported and exported names
+    // retain their externally observable spelling. Shorthand named imports are
+    // represented as bindings too; the mangler deliberately leaves Import
+    // bindings unchanged until it can print `import {name as short}`.
+    for (std::size_t keyword = 0; keyword < tokens.size(); ++keyword) {
+        if (tokens[keyword].text != "import" ||
+            (keyword + 1 < tokens.size() && tokens[keyword + 1].text == "(")) continue;
+        bool in_named = false, after_as = false, saw_default = false;
+        for (std::size_t token = keyword + 1; token < tokens.size(); ++token) {
+            const std::string_view text = tokens[token].text;
+            if (text == ";" || text == "from" || tokens[token].kind == JsTokenKind::String) break;
+            if (text == "{") { in_named = true; after_as = false; continue; }
+            if (text == "}") { in_named = false; after_as = false; continue; }
+            if (text == "as") { after_as = true; continue; }
+            if (text == ",") { after_as = false; continue; }
+            if (tokens[token].kind != JsTokenKind::Identifier) continue;
+            const bool namespace_local = token && tokens[token - 1].text == "as" &&
+                                         token >= 2 && tokens[token - 2].text == "*";
+            const bool aliased_named_local = in_named && after_as;
+            const bool shorthand_named_local = in_named &&
+                (token + 1 >= tokens.size() || tokens[token + 1].text != "as");
+            const bool default_local = !in_named && !saw_default && text != "type";
+            if (namespace_local || aliased_named_local || shorthand_named_local || default_local) {
+                graph.scope_at_token[token] = 0;
+                add_binding(0, token, JsBindingKind::Import);
+                if (default_local) saw_default = true;
+            }
         }
     }
     graph.scope_children.resize(graph.scopes.size());
