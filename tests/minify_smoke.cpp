@@ -750,6 +750,8 @@ int main() {
     eq(structured,"function keep(longName){return function(){return eval('longName')}}","structured descendant dynamic lookup barrier");
     expect(minify::javascript("function outer(longValue){return function(innerValue){return function(deepValue){return longValue+innerValue+deepValue}}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function outer($){return function(_){return function(a){return $+_+a}}}","structured transitive captured binding allocation");
+    expect(minify::javascript("function outer(longValue){const callback=(innerValue)=>{return longValue+innerValue};return callback}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function outer($){const _=(_)=>{return $+_};return _}","structured coordinated block-arrow mangling");
     std::string original_signature, renamed_signature;
     expect(minify::javascript_binding_signature("function total(longValue){return longValue+externalValue}",original_signature,err),err);
     expect(minify::javascript_binding_signature("function total($){return $+externalValue}",renamed_signature,err),err);

@@ -1386,8 +1386,10 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
-            if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
-                (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
+            const bool concise_arrow = tokens[i].text == "=" &&
+                i + 1 < function.last_token && tokens[i + 1].text == ">" &&
+                (i + 2 >= function.last_token || tokens[i + 2].text != "{");
+            if (tokens[i].text == "arguments" || tokens[i].text == "class" || concise_arrow)
                 unsafe = true;
             if (tokens[i].text == "catch" && i + 2 < function.last_token &&
                 tokens[i + 1].text == "(" &&
