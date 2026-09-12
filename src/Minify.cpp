@@ -344,6 +344,9 @@ struct JsConcreteSyntax {
 struct JsControlFlowGraph {
     std::vector<std::vector<std::size_t>> successors;
     std::vector<bool> abrupt;
+    std::size_t entry = 0;
+    std::size_t normal_exit = 0;
+    std::size_t abrupt_exit = 0;
 };
 
 [[maybe_unused]] JsControlFlowGraph build_js_control_flow(const std::vector<JsToken>& tokens,
@@ -351,6 +354,8 @@ struct JsControlFlowGraph {
     JsControlFlowGraph flow;
     flow.successors.resize(tokens.size());
     flow.abrupt.resize(tokens.size(), false);
+    flow.normal_exit = tokens.size();
+    flow.abrupt_exit = tokens.size() + 1;
     for (std::size_t token = 0; token < tokens.size(); ++token) {
         const JsStatementKind statement = token < syntax.statement_kinds.size()
             ? syntax.statement_kinds[token] : JsStatementKind::None;
@@ -360,6 +365,8 @@ struct JsControlFlowGraph {
                             statement == JsStatementKind::Continue;
         flow.abrupt[token] = abrupt;
         if (!abrupt && token + 1 < tokens.size()) flow.successors[token].push_back(token + 1);
+        else if (!abrupt) flow.successors[token].push_back(flow.normal_exit);
+        else flow.successors[token].push_back(flow.abrupt_exit);
         if ((statement == JsStatementKind::If || statement == JsStatementKind::For ||
              statement == JsStatementKind::While || statement == JsStatementKind::Switch) &&
             token + 1 < tokens.size() && tokens[token + 1].text == "(" &&
@@ -369,6 +376,17 @@ struct JsControlFlowGraph {
         }
     }
     return flow;
+}
+
+std::string build_js_cfg_signature(const std::vector<JsToken>& tokens,
+                                   const JsConcreteSyntax& syntax) {
+    const JsControlFlowGraph flow = build_js_control_flow(tokens, syntax);
+    std::string signature = "E" + std::to_string(flow.entry) + ";N" +
+        std::to_string(flow.normal_exit) + ";X" + std::to_string(flow.abrupt_exit) + ";";
+    for (std::size_t from = 0; from < flow.successors.size(); ++from)
+        for (std::size_t to : flow.successors[from])
+            signature += std::to_string(from) + ">" + std::to_string(to) + ";";
+    return signature;
 }
 
 bool js_precedes_block(const std::vector<JsToken>& tokens, std::size_t open) {
@@ -2937,7 +2955,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
                               std::string* binding_signature = nullptr,
                               std::string* effect_signature = nullptr,
-                              std::string* ir_signature = nullptr) {
+                              std::string* ir_signature = nullptr,
+                              std::string* cfg_signature = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -3390,6 +3409,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             *effect_signature = build_js_effect_signature(tokens, scopes, facts, syntax);
         if (ir_signature)
             *ir_signature = build_js_ir_signature(tokens, syntax, scopes);
+        if (cfg_signature)
+            *cfg_signature = build_js_cfg_signature(tokens, syntax);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
@@ -3490,6 +3511,14 @@ bool javascript_ir_signature(const std::string& input, std::string& signature,
     signature.clear();
     return minify_javascript(input, ignored, error, false, true, false, false,
                              nullptr, nullptr, nullptr, nullptr, &signature);
+}
+
+bool javascript_cfg_signature(const std::string& input, std::string& signature,
+                              std::string& error) {
+    std::string ignored;
+    signature.clear();
+    return minify_javascript(input, ignored, error, false, true, false, false,
+                             nullptr, nullptr, nullptr, nullptr, nullptr, &signature);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,

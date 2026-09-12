@@ -803,6 +803,8 @@ int main() {
         expect(minify::javascript_effect_signature(item.second,renamed_signature,err),err);
         eq(renamed_signature,original_signature,"effect oracle alpha-equivalent trace");
     }
+    expect(minify::javascript_cfg_signature("a();return b",original_signature,err),err);
+    expect(original_signature.find("E0;")!=std::string::npos&&original_signature.find("N")!=std::string::npos&&original_signature.find("X")!=std::string::npos,"CFG entry and exits");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
