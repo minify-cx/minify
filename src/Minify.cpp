@@ -138,6 +138,7 @@ struct JsRewriteResult {
 
 enum class JsValueKind { Unknown, Undefined, Null, Boolean, Number, BigInt, String };
 enum class JsTruthiness { Unknown, Falsy, Truthy };
+enum class JsInvocationKind { None, Call, OptionalCall, Construct };
 enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
 enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
 struct JsEffectSummary {
@@ -156,6 +157,7 @@ struct JsSemanticFacts {
     std::vector<JsCompletionKind> completions;
     std::vector<JsEffectSummary> effect_summaries;
     std::vector<JsTruthiness> truthiness;
+    std::vector<JsInvocationKind> invocations;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -165,6 +167,7 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.completions.resize(tokens.size(), JsCompletionKind::Normal);
     facts.effect_summaries.resize(tokens.size());
     facts.truthiness.resize(tokens.size(), JsTruthiness::Unknown);
+    facts.invocations.resize(tokens.size(), JsInvocationKind::None);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
         if (token.kind == JsTokenKind::Number)
@@ -214,6 +217,18 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
             summary.reads_state = true;
             summary.calls_user_code = true;
             summary.may_throw = true;
+        }
+        if (token.text == "(" && index) {
+            const std::string_view previous = tokens[index - 1].text;
+            if (previous == "?.") facts.invocations[index] = JsInvocationKind::OptionalCall;
+            else if (tokens[index - 1].kind == JsTokenKind::Identifier ||
+                     previous == ")" || previous == "]")
+                facts.invocations[index] = index >= 2 && tokens[index - 2].text == "new"
+                    ? JsInvocationKind::Construct : JsInvocationKind::Call;
+            if (facts.invocations[index] != JsInvocationKind::None) {
+                summary.calls_user_code = true;
+                summary.may_throw = true;
+            }
         }
     }
     return facts;
