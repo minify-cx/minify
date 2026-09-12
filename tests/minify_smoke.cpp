@@ -150,6 +150,11 @@ int main() {
     expect(minify::javascript("function f(){while(test);label:;}for(;;);", out, err), err);
     eq(out, "function f(){while(test);label:;}for(;;);",
        "JavaScript meaningful empty statements preserved");
+    expect(minify::javascript("const a=true,b=false;return true;", out, err), err);
+    eq(out, "const a=!0,b=!1;return!0", "JavaScript boolean literal shortening");
+    expect(minify::javascript("const x={true:1,false(){return false}};x.true;", out, err), err);
+    eq(out, "const x={true:1,false(){return!1}};x.true",
+       "JavaScript boolean property names preserved");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");

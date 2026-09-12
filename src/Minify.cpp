@@ -790,6 +790,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
         "return", "throw", "case", "delete", "void", "typeof", "new",
         "in", "instanceof", "yield", "await", "else", "do"
     };
+    static const std::unordered_set<std::string> boolean_expression_prefixes = {
+        "(", "[", "=", "!", "?", ":", "&", "|", "+", "-", "*", "%",
+        "<", ">", "/", "return", "throw", "case", "delete", "void",
+        "typeof", "new", "in", "instanceof", "yield", "await"
+    };
 
     for (std::size_t i = 0; i < input.size();) {
         const char c = input[i];
@@ -811,8 +816,13 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 ++i;
             }
             const std::string word = input.substr(begin, i - begin);
-            emit_pending(word.front());
-            output += word;
+            const bool boolean_literal = word == "true" || word == "false";
+            const bool boolean_expression =
+                boolean_literal &&
+                (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
+            emit_pending(boolean_expression ? '!' : word.front());
+            if (boolean_expression) output += word == "true" ? "!0" : "!1";
+            else output += word;
 
             const bool was_pending_control_paren = pending_control_paren;
             pending_control_paren = control_keywords.count(word) != 0 ||
@@ -835,9 +845,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     !(last_token.empty() || last_token == ";" || last_token == "}block" ||
                       last_token == "export" || last_token == "default");
             }
-            can_start_regex = pending_control_paren ||
-                              expression_prefix_keywords.count(word) != 0;
-            last_token = word;
+            can_start_regex = boolean_expression
+                ? false
+                : pending_control_paren || expression_prefix_keywords.count(word) != 0;
+            last_token = boolean_expression ? "value" : word;
             continue;
         }
 
