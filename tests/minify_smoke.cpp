@@ -703,6 +703,8 @@ int main() {
 
     expect(minify::javascript("function total(longLeft,longRight){return longLeft+longRight;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total($,_){return $+_}","structured simple parameter renaming");
+    expect(minify::javascript("function total(longValue){const doubledValue=longValue*2;return doubledValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total($){const _=$*2;return _}","structured local binding renaming");
     expect(minify::javascript("function keep(longName){return {longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return{longName}}","structured object scope exclusion");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);

@@ -240,6 +240,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsT
         bool simple=true;std::vector<std::size_t> bindings;
         for(std::size_t i=open+1;i+1<scope.first_token;++i){if((i-open)%2==1){if(tokens[i].kind!=JsTokenKind::Identifier)simple=false;else bindings.push_back(i);}else if(tokens[i].text!=",")simple=false;}
         if(!simple||bindings.empty())continue;
+        for(const auto& local:scope.bindings){if(local.token>scope.first_token&&local.token<scope.last_token&&local.token){const std::string& previous=tokens[local.token-1].text;if(previous=="var"||previous=="let"||previous=="const")bindings.push_back(local.token);}}
         std::unordered_set<std::string> occupied,unique;
         for(std::size_t i=open+1;i+1<scope.last_token;++i)if(tokens[i].kind==JsTokenKind::Identifier)occupied.insert(tokens[i].text);
         for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
