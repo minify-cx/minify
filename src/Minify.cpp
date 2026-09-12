@@ -143,6 +143,7 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
 
         bool unsafe_scope = false;
         std::unordered_set<std::string> occupied;
+        for (const auto& param : params) occupied.insert(param);
         for (std::size_t p = close_params + 2; p < close_body; ++p) {
             occupied.insert(tokens[p].text);
             if (unsafe_scope_words.count(tokens[p].text) != 0 ||
@@ -161,8 +162,10 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
             for (char b = 'a'; b <= 'z'; ++b)
                 names.push_back(std::string(1, a) + b);
         std::size_t next_name = 0;
+        std::unordered_set<std::string> handled;
         for (std::size_t parameter = 0; parameter < params.size(); ++parameter) {
             const std::string& original = params[parameter];
+            if (!handled.insert(original).second) continue;
             while (next_name < names.size() &&
                    (occupied.count(names[next_name]) != 0 ||
                     reserved_words.count(names[next_name]) != 0)) ++next_name;
@@ -181,16 +184,22 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
             }
             if (shorthand) continue;
 
-            replacements.push_back({tokens[cursor + 1 + parameter * 2].begin,
-                                    tokens[cursor + 1 + parameter * 2].end,
-                                    replacement});
+            for (std::size_t declaration = 0; declaration < params.size(); ++declaration) {
+                if (params[declaration] == original) {
+                    const JsToken& token = tokens[cursor + 1 + declaration * 2];
+                    replacements.push_back({token.begin, token.end, replacement});
+                }
+            }
             for (std::size_t p = close_params + 2; p < close_body; ++p) {
                 if (tokens[p].text != original) continue;
                 const std::string previous = p ? tokens[p - 1].text : std::string();
                 const std::string next = p + 1 < tokens.size()
                     ? tokens[p + 1].text : std::string();
-                if (previous == "." || next == ":" ||
-                    ((previous == "{" || previous == ",") && next == "(")) continue;
+                if (previous == "." || previous == "#" || previous == "break" ||
+                    previous == "continue" || next == ":" ||
+                    (next == "(" && (previous == "{" || previous == "," ||
+                                     previous == "get" || previous == "set" ||
+                                     previous == "async" || previous == "*"))) continue;
                 replacements.push_back(
                     {tokens[p].begin, tokens[p].end, replacement});
             }
@@ -1307,9 +1316,15 @@ static bool minify_javascript(const std::string& input, std::string& output,
         before_semicolon_token != ";") {
         output.pop_back();
     }
-    // Token positions are deliberately non-mutating in this checkpoint. They
-    // share the production lexer so later scope planning cannot diverge on
-    // comments, regex literals, templates, or brace classification.
+    auto replacements = plan_js_parameter_mangling(tokens);
+    std::sort(replacements.begin(), replacements.end(),
+              [](const JsReplacement& left, const JsReplacement& right) {
+                  return left.begin > right.begin;
+              });
+    for (const auto& replacement : replacements) {
+        output.replace(replacement.begin, replacement.end - replacement.begin,
+                       replacement.text);
+    }
     error.clear();
     return true;
 }

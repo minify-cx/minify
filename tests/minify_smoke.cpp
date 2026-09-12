@@ -164,6 +164,14 @@ int main() {
     expect(minify::javascript("const a='\\n\\x41\\u0042\\\\';", out, err), err);
     eq(out, "const a='\\n\\x41\\u0042\\\\'",
        "JavaScript non-quote escapes preserved");
+    expect(minify::javascript(
+        "function total(longLeft,longRight){return longLeft+longRight;}", out, err), err);
+    eq(out, "function total($,_){return $+_}",
+       "JavaScript simple parameter mangling");
+    expect(minify::javascript(
+        "function keep(longName){return {longName,value:longName}.longName;}", out, err), err);
+    eq(out, "function keep(longName){return{longName,value:longName}.longName}",
+       "JavaScript shorthand blocks parameter mangling");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");
