@@ -108,12 +108,55 @@ struct JsReplacement {
 };
 
 enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
-struct JsSyntaxNode { JsSyntaxKind kind; std::size_t first_token; std::size_t last_token; std::size_t parent; };
-struct JsConcreteSyntax { std::vector<JsSyntaxNode> nodes; bool balanced = true; };
+enum class JsGroupRole { Root, Grouping, Arguments, Parameters, ArrayLiteral, ObjectLiteral, Block, Unknown };
+enum class JsIdentifierRole {
+    Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
+    Label, ImportExportName, PrivateName
+};
+struct JsSyntaxNode {
+    JsSyntaxKind kind;
+    JsGroupRole role;
+    std::size_t first_token;
+    std::size_t last_token;
+    std::size_t parent;
+};
+struct JsConcreteSyntax {
+    std::vector<JsSyntaxNode> nodes;
+    std::vector<std::size_t> node_at_token;
+    std::vector<JsIdentifierRole> identifier_roles;
+    bool balanced = true;
+};
+
+bool js_precedes_block(const std::vector<JsToken>& tokens, std::size_t open) {
+    if (open == 0) return true;
+    const std::string& previous = tokens[open - 1].text;
+    if (previous == ")") return true;
+    if (previous == "else" || previous == "try" || previous == "finally" ||
+        previous == "do" || previous == "=>") return true;
+    if (open >= 2 && (tokens[open - 2].text == "class" ||
+                      tokens[open - 2].text == "function" ||
+                      tokens[open - 2].text == "catch")) return true;
+    return false;
+}
+
+JsGroupRole js_group_role(const std::vector<JsToken>& tokens, JsSyntaxKind kind,
+                          std::size_t open) {
+    if (kind == JsSyntaxKind::Brackets) return JsGroupRole::ArrayLiteral;
+    if (kind == JsSyntaxKind::Braces)
+        return js_precedes_block(tokens, open) ? JsGroupRole::Block : JsGroupRole::ObjectLiteral;
+    if (kind != JsSyntaxKind::Parentheses) return JsGroupRole::Unknown;
+    if (open && (tokens[open - 1].kind == JsTokenKind::Identifier ||
+                 tokens[open - 1].text == ")" || tokens[open - 1].text == "]" ||
+                 tokens[open - 1].text == "super" || tokens[open - 1].text == "import"))
+        return JsGroupRole::Arguments;
+    return JsGroupRole::Grouping;
+}
 
 JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     JsConcreteSyntax syntax;
-    syntax.nodes.push_back({JsSyntaxKind::Root, 0, tokens.size(), 0});
+    syntax.nodes.push_back({JsSyntaxKind::Root, JsGroupRole::Root, 0, tokens.size(), 0});
+    syntax.node_at_token.resize(tokens.size(), 0);
+    syntax.identifier_roles.resize(tokens.size(), JsIdentifierRole::Unknown);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string& text = tokens[index].text;
@@ -121,17 +164,43 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             : text == "[" ? JsSyntaxKind::Brackets
             : text == "{" ? JsSyntaxKind::Braces : JsSyntaxKind::Token;
         if (kind != JsSyntaxKind::Token) {
-            syntax.nodes.push_back({kind, index, tokens.size(), groups.back()});
+            syntax.nodes.push_back({kind, js_group_role(tokens, kind, index), index,
+                                    tokens.size(), groups.back()});
             groups.push_back(syntax.nodes.size() - 1);
+            syntax.node_at_token[index] = groups.back();
         } else if (text == ")" || text == "]" || text == "}") {
             const JsSyntaxKind expected = text == ")" ? JsSyntaxKind::Parentheses
                 : text == "]" ? JsSyntaxKind::Brackets : JsSyntaxKind::Braces;
             if (groups.size() == 1 || syntax.nodes[groups.back()].kind != expected)
                 syntax.balanced = false;
             else { syntax.nodes[groups.back()].last_token = index + 1; groups.pop_back(); }
-        } else syntax.nodes.push_back({JsSyntaxKind::Token, index, index + 1, groups.back()});
+        } else {
+            syntax.nodes.push_back({JsSyntaxKind::Token, JsGroupRole::Unknown,
+                                    index, index + 1, groups.back()});
+            syntax.node_at_token[index] = syntax.nodes.size() - 1;
+        }
     }
     if (groups.size() != 1) syntax.balanced = false;
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        if (tokens[index].kind != JsTokenKind::Identifier) continue;
+        const std::string previous = index ? tokens[index - 1].text : std::string();
+        const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
+        JsIdentifierRole role = JsIdentifierRole::Reference;
+        if (previous == ".") role = JsIdentifierRole::MemberProperty;
+        else if (previous == "#") role = JsIdentifierRole::PrivateName;
+        else if (next == ":") role = JsIdentifierRole::PropertyKey;
+        else if (previous == "break" || previous == "continue" || next == ":")
+            role = JsIdentifierRole::Label;
+        else if (previous == "import" || previous == "export" || previous == "as")
+            role = JsIdentifierRole::ImportExportName;
+        const std::size_t node = syntax.node_at_token[index];
+        const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
+        if (role == JsIdentifierRole::Reference && parent < syntax.nodes.size() &&
+            syntax.nodes[parent].role == JsGroupRole::ObjectLiteral &&
+            (previous == "{" || previous == ",") && (next == "}" || next == ","))
+            role = JsIdentifierRole::ShorthandProperty;
+        syntax.identifier_roles[index] = role;
+    }
     return syntax;
 }
 
@@ -224,7 +293,9 @@ JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::v
     result.text.append(source,cursor,source.size()-cursor); return result;
 }
 
-std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
+std::vector<JsReplacement> plan_safe_js_parameter_renaming(
+    const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
+    const JsScopeGraph& graph) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string> unsafe_names={"await","yield","arguments","eval"};
     for(std::size_t si=1;si<graph.scopes.size();++si){
@@ -249,7 +320,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsT
         for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
         if(!simple)continue;
         std::size_t ni=0;
-        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text!=original)continue;const std::string previous=ref.token?tokens[ref.token-1].text:std::string();const std::string next=ref.token+1<tokens.size()?tokens[ref.token+1].text:std::string();bool object_region=false;if(ref.scope<graph.scopes.size()&&ref.scope!=si){const auto open=graph.scopes[ref.scope].first_token;if(open&&tokens[open].text=="{"){const std::string& before=tokens[open-1].text;object_region=before=="return"||before=="="||before=="("||before=="["||before==","||before==":";}}const bool shorthand=object_region&&(previous=="{"||previous==",")&&(next=="}"||next==",");replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
+        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text!=original)continue;const bool shorthand=ref.token<syntax.identifier_roles.size()&&syntax.identifier_roles[ref.token]==JsIdentifierRole::ShorthandProperty;replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
     }
     return replacements;
 }
@@ -1764,7 +1835,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
         if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
-            auto replacements = plan_safe_js_parameter_renaming(tokens, scopes);
+            auto replacements = plan_safe_js_parameter_renaming(tokens, syntax, scopes);
             if (!replacements.empty()) {
                 const std::string rewritten = apply_js_replacements(input, std::move(replacements));
                 return minify_javascript(rewritten, output, error, preserve_jsx_boundaries,

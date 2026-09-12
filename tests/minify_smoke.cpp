@@ -707,6 +707,8 @@ int main() {
     eq(structured,"function total($){const _=$*2;return _}","structured local binding renaming");
     expect(minify::javascript("function keep(longName){return {longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{longName:$}}","structured shorthand-aware printing");
+    expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
