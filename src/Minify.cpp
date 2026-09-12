@@ -230,9 +230,12 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsT
     for(std::size_t si=1;si<graph.scopes.size();++si){
         const JsScope& scope=graph.scopes[si];
         if(scope.kind!=JsScopeKind::Function||scope.dynamic_lookup||scope.last_token>tokens.size()||!scope.first_token)continue;
-        bool unsafe=false;
-        for(std::size_t i=scope.first_token+1;i+1<scope.last_token;++i)
-            if(tokens[i].text=="{"||tokens[i].text=="}"||tokens[i].text=="arguments"||tokens[i].text=="eval"||tokens[i].text=="with"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
+        bool unsafe=false;std::size_t object_depth=0;
+        for(std::size_t i=scope.first_token+1;i+1<scope.last_token;++i){
+            if(tokens[i].text=="{"){const std::string& p=tokens[i-1].text;if(p=="return"||p=="="||p=="("||p=="["||p==","||p==":")++object_depth;else unsafe=true;}
+            else if(tokens[i].text=="}"){if(object_depth)--object_depth;else unsafe=true;}
+            if(tokens[i].text=="arguments"||tokens[i].text=="eval"||tokens[i].text=="with"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
+        }
         if(unsafe||tokens[scope.first_token-1].text!=")")continue;
         std::size_t depth=1,open=scope.first_token-1;
         while(open&&depth){--open;if(tokens[open].text==")")++depth;else if(tokens[open].text=="(")--depth;}
@@ -246,7 +249,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(const std::vector<JsT
         for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
         if(!simple)continue;
         std::size_t ni=0;
-        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text==original)replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,replacement});}occupied.insert(replacement);}
+        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text!=original)continue;const std::string previous=ref.token?tokens[ref.token-1].text:std::string();const std::string next=ref.token+1<tokens.size()?tokens[ref.token+1].text:std::string();bool object_region=false;if(ref.scope<graph.scopes.size()&&ref.scope!=si){const auto open=graph.scopes[ref.scope].first_token;if(open&&tokens[open].text=="{"){const std::string& before=tokens[open-1].text;object_region=before=="return"||before=="="||before=="("||before=="["||before==","||before==":";}}const bool shorthand=object_region&&(previous=="{"||previous==",")&&(next=="}"||next==",");replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
     }
     return replacements;
 }
