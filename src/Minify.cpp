@@ -182,6 +182,11 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
 
 enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
 enum class JsGroupRole { Root, Grouping, Arguments, Parameters, ArrayLiteral, ObjectLiteral, Block, Unknown };
+enum class JsStatementKind {
+    None, Block, Empty, Expression, Variable, If, For, While, DoWhile, Switch,
+    Try, Catch, Finally, Label, Break, Continue, Return, Throw, Function, Class,
+    Import, Export
+};
 enum class JsIdentifierRole {
     Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
     Label, ImportExportName, PrivateName
@@ -199,6 +204,7 @@ struct JsConcreteSyntax {
     std::vector<std::size_t> node_at_token;
     std::vector<std::size_t> matching_token;
     std::vector<JsIdentifierRole> identifier_roles;
+    std::vector<JsStatementKind> statement_kinds;
     bool balanced = true;
 };
 
@@ -237,6 +243,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.node_at_token.resize(tokens.size(), 0);
     syntax.matching_token.resize(tokens.size(), tokens.size());
     syntax.identifier_roles.resize(tokens.size(), JsIdentifierRole::Unknown);
+    syntax.statement_kinds.resize(tokens.size(), JsStatementKind::None);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -274,6 +281,27 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
         }
     }
     if (groups.size() != 1) syntax.balanced = false;
+    static const std::unordered_map<std::string_view, JsStatementKind> statement_words = {
+        {"var", JsStatementKind::Variable}, {"let", JsStatementKind::Variable},
+        {"const", JsStatementKind::Variable}, {"if", JsStatementKind::If},
+        {"for", JsStatementKind::For}, {"while", JsStatementKind::While},
+        {"do", JsStatementKind::DoWhile}, {"switch", JsStatementKind::Switch},
+        {"try", JsStatementKind::Try}, {"catch", JsStatementKind::Catch},
+        {"finally", JsStatementKind::Finally}, {"break", JsStatementKind::Break},
+        {"continue", JsStatementKind::Continue}, {"return", JsStatementKind::Return},
+        {"throw", JsStatementKind::Throw}, {"function", JsStatementKind::Function},
+        {"class", JsStatementKind::Class}, {"import", JsStatementKind::Import},
+        {"export", JsStatementKind::Export}
+    };
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const auto statement = statement_words.find(tokens[index].text);
+        if (statement != statement_words.end()) syntax.statement_kinds[index] = statement->second;
+        else if (tokens[index].text == "{") syntax.statement_kinds[index] = JsStatementKind::Block;
+        else if (tokens[index].text == ";") syntax.statement_kinds[index] = JsStatementKind::Empty;
+        else if (tokens[index].kind == JsTokenKind::Identifier && index + 1 < tokens.size() &&
+                 tokens[index + 1].text == ":")
+            syntax.statement_kinds[index] = JsStatementKind::Label;
+    }
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         if (tokens[index].kind != JsTokenKind::Identifier) continue;
         const std::string_view previous = index ? tokens[index - 1].text : std::string_view();
