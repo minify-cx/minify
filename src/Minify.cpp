@@ -877,6 +877,30 @@ std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
     return barriers;
 }
 
+std::vector<std::unordered_set<std::size_t>> build_js_binding_interference(
+    const JsScopeGraph& graph) {
+    std::vector<std::unordered_set<std::size_t>> interference(graph.bindings.size());
+    for (std::size_t left = 0; left < graph.bindings.size(); ++left) {
+        for (std::size_t right = left + 1; right < graph.bindings.size(); ++right) {
+            const JsBinding& a = graph.bindings[left];
+            const JsBinding& b = graph.bindings[right];
+            if (graph.containing_function[a.scope] != graph.containing_function[b.scope]) continue;
+            const JsScope& a_scope = graph.scopes[a.scope];
+            const JsScope& b_scope = graph.scopes[b.scope];
+            const bool reusable_kinds =
+                (a.kind == JsBindingKind::Lexical || a.kind == JsBindingKind::Catch) &&
+                (b.kind == JsBindingKind::Lexical || b.kind == JsBindingKind::Catch);
+            const bool disjoint = a_scope.last_token <= b_scope.first_token ||
+                                  b_scope.last_token <= a_scope.first_token;
+            if (!reusable_kinds || !disjoint) {
+                interference[left].insert(right);
+                interference[right].insert(left);
+            }
+        }
+    }
+    return interference;
+}
+
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
@@ -918,6 +942,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
     }
     const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
+    const auto binding_interference = build_js_binding_interference(graph);
     for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
         if (function.kind != JsScopeKind::Function ||
@@ -1012,15 +1037,10 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 bool conflicts = false;
                 for (const auto& allocated : allocated_names) {
                     if (allocated.first != replacement) continue;
-                    const JsBinding& other = graph.bindings[allocated.second];
-                    const JsScope& left_scope = graph.scopes[binding.scope];
-                    const JsScope& right_scope = graph.scopes[other.scope];
-                    const bool reusable_kinds =
-                        (binding.kind == JsBindingKind::Lexical || binding.kind == JsBindingKind::Catch) &&
-                        (other.kind == JsBindingKind::Lexical || other.kind == JsBindingKind::Catch);
-                    const bool disjoint = left_scope.last_token <= right_scope.first_token ||
-                                          right_scope.last_token <= left_scope.first_token;
-                    if (!reusable_kinds || !disjoint) { conflicts = true; break; }
+                    if (binding_interference[binding_id].count(allocated.second)) {
+                        conflicts = true;
+                        break;
+                    }
                 }
                 if (!conflicts) break;
             }
