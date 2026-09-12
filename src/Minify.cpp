@@ -187,6 +187,12 @@ enum class JsStatementKind {
     Try, Catch, Finally, Label, Break, Continue, Return, Throw, Function, Class,
     Import, Export
 };
+enum class JsExpressionKind {
+    None, Primary, Member, Call, New, Postfix, Unary, Exponentiation,
+    Multiplicative, Additive, Shift, Relational, Equality, BitwiseAnd,
+    BitwiseXor, BitwiseOr, LogicalAnd, LogicalOr, Nullish, Conditional,
+    Assignment, Yield, Sequence, Arrow
+};
 enum class JsIdentifierRole {
     Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
     Label, ImportExportName, PrivateName
@@ -205,6 +211,8 @@ struct JsConcreteSyntax {
     std::vector<std::size_t> matching_token;
     std::vector<JsIdentifierRole> identifier_roles;
     std::vector<JsStatementKind> statement_kinds;
+    std::vector<JsExpressionKind> expression_kinds;
+    std::vector<unsigned char> expression_precedence;
     bool balanced = true;
 };
 
@@ -244,6 +252,8 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.matching_token.resize(tokens.size(), tokens.size());
     syntax.identifier_roles.resize(tokens.size(), JsIdentifierRole::Unknown);
     syntax.statement_kinds.resize(tokens.size(), JsStatementKind::None);
+    syntax.expression_kinds.resize(tokens.size(), JsExpressionKind::None);
+    syntax.expression_precedence.resize(tokens.size(), 0);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -278,6 +288,40 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             syntax.children.emplace_back();
             syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
+        }
+    }
+    static const std::unordered_map<std::string_view,
+        std::pair<JsExpressionKind, unsigned char>> operators = {
+        {",", {JsExpressionKind::Sequence, 1}}, {"=", {JsExpressionKind::Assignment, 2}},
+        {"+=", {JsExpressionKind::Assignment, 2}}, {"-=", {JsExpressionKind::Assignment, 2}},
+        {"=>", {JsExpressionKind::Arrow, 2}}, {"?", {JsExpressionKind::Conditional, 3}},
+        {"??", {JsExpressionKind::Nullish, 4}}, {"||", {JsExpressionKind::LogicalOr, 4}},
+        {"&&", {JsExpressionKind::LogicalAnd, 5}}, {"|", {JsExpressionKind::BitwiseOr, 6}},
+        {"^", {JsExpressionKind::BitwiseXor, 7}}, {"&", {JsExpressionKind::BitwiseAnd, 8}},
+        {"==", {JsExpressionKind::Equality, 9}}, {"===", {JsExpressionKind::Equality, 9}},
+        {"!=", {JsExpressionKind::Equality, 9}}, {"!==", {JsExpressionKind::Equality, 9}},
+        {"<", {JsExpressionKind::Relational, 10}}, {">", {JsExpressionKind::Relational, 10}},
+        {"<=", {JsExpressionKind::Relational, 10}}, {">=", {JsExpressionKind::Relational, 10}},
+        {"in", {JsExpressionKind::Relational, 10}}, {"instanceof", {JsExpressionKind::Relational, 10}},
+        {"<<", {JsExpressionKind::Shift, 11}}, {">>", {JsExpressionKind::Shift, 11}},
+        {">>>", {JsExpressionKind::Shift, 11}}, {"+", {JsExpressionKind::Additive, 12}},
+        {"-", {JsExpressionKind::Additive, 12}}, {"*", {JsExpressionKind::Multiplicative, 13}},
+        {"/", {JsExpressionKind::Multiplicative, 13}}, {"%", {JsExpressionKind::Multiplicative, 13}},
+        {"**", {JsExpressionKind::Exponentiation, 14}}, {".", {JsExpressionKind::Member, 18}},
+        {"?.", {JsExpressionKind::Member, 18}}
+    };
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const auto found = operators.find(tokens[index].text);
+        if (found != operators.end()) {
+            syntax.expression_kinds[index] = found->second.first;
+            syntax.expression_precedence[index] = found->second.second;
+        } else if (tokens[index].kind == JsTokenKind::Number ||
+                   tokens[index].kind == JsTokenKind::String ||
+                   tokens[index].kind == JsTokenKind::Regex ||
+                   tokens[index].kind == JsTokenKind::Template ||
+                   tokens[index].kind == JsTokenKind::Identifier) {
+            syntax.expression_kinds[index] = JsExpressionKind::Primary;
+            syntax.expression_precedence[index] = 20;
         }
     }
     if (groups.size() != 1) syntax.balanced = false;
