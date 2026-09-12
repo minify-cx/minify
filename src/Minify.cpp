@@ -116,6 +116,50 @@ struct JsRewriteResult {
     bool smaller = false;
 };
 
+enum class JsValueKind { Unknown, Null, Boolean, Number, String };
+enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
+enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
+
+struct JsSemanticFacts {
+    std::vector<JsValueKind> values;
+    std::vector<JsEffectKind> effects;
+    std::vector<JsCompletionKind> completions;
+};
+
+JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
+    JsSemanticFacts facts;
+    facts.values.resize(tokens.size(), JsValueKind::Unknown);
+    facts.effects.resize(tokens.size(), JsEffectKind::MayThrow);
+    facts.completions.resize(tokens.size(), JsCompletionKind::Normal);
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const JsToken& token = tokens[index];
+        if (token.kind == JsTokenKind::Number) facts.values[index] = JsValueKind::Number;
+        else if (token.kind == JsTokenKind::String) facts.values[index] = JsValueKind::String;
+        else if (token.text == "true" || token.text == "false") facts.values[index] = JsValueKind::Boolean;
+        else if (token.text == "null") facts.values[index] = JsValueKind::Null;
+
+        if (facts.values[index] != JsValueKind::Unknown || token.kind == JsTokenKind::Regex ||
+            token.kind == JsTokenKind::Template)
+            facts.effects[index] = JsEffectKind::Pure;
+        else if (token.kind == JsTokenKind::Identifier)
+            facts.effects[index] = JsEffectKind::Read;
+        else if (token.text == "=" || token.text == "+=" || token.text == "-=" ||
+                 token.text == "*=" || token.text == "/=" || token.text == "%=" ||
+                 token.text == "++" || token.text == "--")
+            facts.effects[index] = JsEffectKind::Write;
+        else if (token.text == "new" || (token.text == "(" && index &&
+                 (tokens[index - 1].kind == JsTokenKind::Identifier ||
+                  tokens[index - 1].text == ")" || tokens[index - 1].text == "]")))
+            facts.effects[index] = JsEffectKind::CallOrConstruct;
+
+        if (token.text == "return") facts.completions[index] = JsCompletionKind::Return;
+        else if (token.text == "throw") facts.completions[index] = JsCompletionKind::Throw;
+        else if (token.text == "break") facts.completions[index] = JsCompletionKind::Break;
+        else if (token.text == "continue") facts.completions[index] = JsCompletionKind::Continue;
+    }
+    return facts;
+}
+
 enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
 enum class JsGroupRole { Root, Grouping, Arguments, Parameters, ArrayLiteral, ObjectLiteral, Block, Unknown };
 enum class JsIdentifierRole {
@@ -444,7 +488,8 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
     return replacements;
 }
 
-std::vector<JsReplacement> plan_js_constant_conditionals(const std::vector<JsToken>& tokens) {
+std::vector<JsReplacement> plan_js_constant_conditionals(
+    const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string> safe_prefixes = {
         "(", "[", "{", "=", ",", ":", ";", "return", "throw", "case"
@@ -453,11 +498,8 @@ std::vector<JsReplacement> plan_js_constant_conditionals(const std::vector<JsTok
         if ((tokens[i].text != "true" && tokens[i].text != "false") ||
             tokens[i + 1].text != "?" || tokens[i + 3].text != ":") continue;
         if (i && safe_prefixes.count(tokens[i - 1].text) == 0) continue;
-        const auto safe_value = [](const JsToken& token) {
-            return token.kind == JsTokenKind::Number || token.kind == JsTokenKind::String ||
-                   token.text == "true" || token.text == "false" || token.text == "null";
-        };
-        if (!safe_value(tokens[i + 2]) || !safe_value(tokens[i + 4])) continue;
+        if (facts.values[i + 2] == JsValueKind::Unknown ||
+            facts.values[i + 4] == JsValueKind::Unknown) continue;
         const JsToken& selected = tokens[i].text == "true" ? tokens[i + 2] : tokens[i + 4];
         if (selected.text.size() < tokens[i + 4].end - tokens[i].begin)
             replacements.push_back({tokens[i].begin, tokens[i + 4].end, selected.text});
@@ -466,10 +508,11 @@ std::vector<JsReplacement> plan_js_constant_conditionals(const std::vector<JsTok
     return replacements;
 }
 
-std::vector<JsReplacement> plan_js_unreachable_debuggers(const std::vector<JsToken>& tokens) {
+std::vector<JsReplacement> plan_js_unreachable_debuggers(
+    const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
     for (std::size_t i = 0; i + 4 < tokens.size(); ++i) {
-        if (tokens[i].text != "return") continue;
+        if (facts.completions[i] != JsCompletionKind::Return) continue;
         std::size_t terminator = i + 1;
         while (terminator < tokens.size() && tokens[terminator].text != ";" &&
                tokens[terminator].text != "}") ++terminator;
@@ -514,7 +557,8 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
     return replacements;
 }
 
-std::vector<JsReplacement> plan_js_literal_iifes(const std::vector<JsToken>& tokens) {
+std::vector<JsReplacement> plan_js_literal_iifes(
+    const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
     for (std::size_t i = 0; i + 11 < tokens.size(); ++i) {
         if (tokens[i].text != "(" || tokens[i + 1].text != "function" ||
@@ -524,8 +568,7 @@ std::vector<JsReplacement> plan_js_literal_iifes(const std::vector<JsToken>& tok
             tokens[i + 9].text != ")" || tokens[i + 10].text != "(" ||
             tokens[i + 11].text != ")") continue;
         const JsToken& value = tokens[i + 6];
-        if (value.kind != JsTokenKind::Number && value.kind != JsTokenKind::String &&
-            value.text != "true" && value.text != "false" && value.text != "null") continue;
+        if (facts.values[i + 6] == JsValueKind::Unknown) continue;
         if (value.text.size() < tokens[i + 11].end - tokens[i].begin)
             replacements.push_back({tokens[i].begin, tokens[i + 11].end, value.text});
         i += 11;
@@ -1909,6 +1952,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
+        const JsSemanticFacts facts = build_js_semantic_facts(tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
         if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
@@ -1930,11 +1974,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     replacements.insert(replacements.end(), more.begin(), more.end());
                 };
                 if (pass_enabled(JavaScriptOptimizationPass::ConstantFold)) append(plan_js_constant_folding(tokens));
-                if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) append(plan_js_constant_conditionals(tokens));
-                if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) append(plan_js_constant_conditionals(tokens, facts));
+                if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens, facts));
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
                 if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin)) append(plan_js_var_declaration_joins(tokens));
-                if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens, facts));
                 if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
                     append(plan_js_property_mangling(tokens, *property_allowlist));
                 if (!replacements.empty()) {
