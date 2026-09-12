@@ -16,6 +16,15 @@ bool ws(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
 }
 
+std::string shortest_js_literal(const std::string& original,
+                                const std::vector<std::string>& alternatives) {
+    const std::string* best = &original;
+    for (const auto& candidate : alternatives) {
+        if (candidate.size() < best->size()) best = &candidate;
+    }
+    return *best;
+}
+
 std::string shorten_js_integer(const std::string& token) {
     if (token.size() < 3 || token[0] != '0') return token;
     unsigned base = 0;
@@ -36,7 +45,7 @@ std::string shorten_js_integer(const std::string& token) {
         value = value * base + digit;
     }
     const std::string decimal = std::to_string(value);
-    return decimal.size() < token.size() ? decimal : token;
+    return shortest_js_literal(token, {decimal});
 }
 
 std::string quote_js_string(const std::string& token, char target) {
@@ -67,9 +76,12 @@ std::string quote_js_string(const std::string& token, char target) {
 std::string shorten_js_string(const std::string& token) {
     const std::string single = quote_js_string(token, '\'');
     const std::string dual = quote_js_string(token, '"');
-    if (single.size() < dual.size()) return single;
-    if (dual.size() < single.size()) return dual;
-    return token.front() == '\'' ? single : dual;
+    return shortest_js_literal(token, {single, dual});
+}
+
+std::string shorten_js_boolean(const std::string& token, bool expression_safe) {
+    if (!expression_safe) return token;
+    return shortest_js_literal(token, {token == "true" ? "!0" : "!1"});
 }
 
 enum class JsTokenKind { Identifier, Punctuator, Number, String, Regex, Template };
@@ -1130,7 +1142,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 !binds_more_tightly && last_token != "new" &&
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
-            if (boolean_expression) output += word == "true" ? "!0" : "!1";
+            const std::string literal = shorten_js_boolean(word, boolean_expression);
+            if (boolean_expression) output += literal;
             else {
                 output += word;
                 record_token(JsTokenKind::Identifier, begin, i);
