@@ -958,6 +958,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
     }
     const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
+    std::vector<std::string> coordinated_names(graph.bindings.size());
     for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
         if (function.kind != JsScopeKind::Function ||
@@ -993,18 +994,17 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         std::vector<std::size_t> eligible;
         std::unordered_set<std::string_view> occupied = reserved;
         occupied.insert(nested_name_barriers[unit].begin(), nested_name_barriers[unit].end());
+        for (std::size_t captured : graph.captures_by_function[unit])
+            if (captured < coordinated_names.size() && !coordinated_names[captured].empty())
+                occupied.insert(coordinated_names[captured]);
         for (std::size_t binding : bindings_by_unit[unit]) {
             const JsBinding& candidate = graph.bindings[binding];
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
                                    candidate.kind == JsBindingKind::Catch;
-            const bool captured = std::any_of(graph.references_by_binding[binding].begin(),
-                graph.references_by_binding[binding].end(), [&](std::size_t reference) {
-                    return graph.references[reference].captured;
-                });
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
-            if (supported && !captured && duplicates == 1 && !reserved.count(candidate.name) &&
+            if (supported && duplicates == 1 && !reserved.count(candidate.name) &&
                 candidate.name.size() > 2)
                 eligible.push_back(binding);
             else
@@ -1085,6 +1085,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                     shorthand ? std::string(binding.name) + ":" + replacement : replacement});
             }
             allocated_names.push_back({replacement, binding_id});
+            coordinated_names[binding_id] = replacement;
         }
     }
     return replacements;
