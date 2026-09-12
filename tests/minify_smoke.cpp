@@ -515,6 +515,11 @@ int main() {
     expect(out.find("1 .toString") != std::string::npos, "numeric member boundary merged");
     expect(out.find("/x/g instanceof") != std::string::npos, "regex flag boundary merged");
 
+    expect(minify::javascript("function f(){return\nvalue}\na\n++b\nasync\nx=>x", out, err), err);
+    expect(out.find("return\nvalue") != std::string::npos, "return line terminator removed");
+    expect(out.find("a\n++b") != std::string::npos, "postfix line terminator removed");
+    expect(out.find("async\nx=>x") != std::string::npos, "async arrow boundary removed");
+
     // Idempotence: a second minification pass must be byte-identical.
     auto idem = [&](minify::Format fmt, const std::string& src, const char* label) {
         std::string a,b,e;

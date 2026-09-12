@@ -394,6 +394,28 @@ bool js_needs_separator(char left, char right, bool after_regex,
            (std::isdigit(static_cast<unsigned char>(left)) && right == '.');
 }
 
+enum class JsLineTerminatorAction {
+    DropAfterDelimiter,
+    PreserveRestrictedProduction,
+    PreserveExpressionContinuation,
+    PreserveAsiBoundary
+};
+
+JsLineTerminatorAction classify_js_line_terminator(char left,
+                                                   const std::string& previous_token,
+                                                   char next) {
+    if (left == ';' || left == '{')
+        return JsLineTerminatorAction::DropAfterDelimiter;
+    static const std::unordered_set<std::string> restricted = {
+        "return", "throw", "break", "continue", "yield", "await", "async"
+    };
+    if (restricted.count(previous_token) != 0 || next == '+' || next == '-')
+        return JsLineTerminatorAction::PreserveRestrictedProduction;
+    if (next == '(' || next == '[' || next == '/' || next == '`' || next == '.')
+        return JsLineTerminatorAction::PreserveExpressionContinuation;
+    return JsLineTerminatorAction::PreserveAsiBoundary;
+}
+
 std::string lower(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
@@ -987,15 +1009,16 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     auto emit_pending = [&](char next) {
         if (pending_newline) {
-            const bool delimited_boundary =
-                !output.empty() &&
-                (output.back() == ';' || output.back() == '{');
+            const JsLineTerminatorAction action = output.empty()
+                ? JsLineTerminatorAction::PreserveAsiBoundary
+                : classify_js_line_terminator(output.back(), last_token, next);
             // A terminator after an explicit semicolon, an opening brace, or a
             // opening brace cannot supply ASI semantics. A closing brace is
             // not enough: it may close an async/function/class expression,
             // and the following line can depend on ASI. Preserve every other
             // newline, including all boundaries following `}`.
-            if (!delimited_boundary && !output.empty() && output.back() != '\n')
+            if (action != JsLineTerminatorAction::DropAfterDelimiter &&
+                !output.empty() && output.back() != '\n')
                 output.push_back('\n');
         } else if (pending_space && !output.empty() &&
                    js_needs_separator(output.back(), next, regex_boundary,
