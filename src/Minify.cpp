@@ -589,7 +589,10 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                                  (index == 0 || tokens[index - 1].text != ".");
         if (direct_eval || text == "with") mark_dynamic_function(scopes.back());
         if (text == "{") {
-            const bool creates_scope = tokens[index].brace_kind != JsBraceKind::Object;
+            const bool parameter_pattern = pending == JsScopeKind::Function && index &&
+                (tokens[index - 1].text == "(" || tokens[index - 1].text == ",");
+            const bool creates_scope = !parameter_pattern &&
+                                       tokens[index].brace_kind != JsBraceKind::Object;
             brace_creates_scope.push_back(creates_scope);
             if (!creates_scope) continue;
             const bool arrow_body = index >= 2 && tokens[index - 1].text == ">" &&
@@ -621,6 +624,11 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                         if (binding_position && nested == 0) {
                             if (tokens[p].kind == JsTokenKind::Identifier)
                                 add_binding(scopes.back(), p, JsBindingKind::Parameter);
+                            else if ((tokens[p].text == "{" || tokens[p].text == "[") &&
+                                     p + 2 < close &&
+                                     tokens[p + 1].kind == JsTokenKind::Identifier &&
+                                     tokens[p + 2].text == (tokens[p].text == "{" ? "}" : "]"))
+                                add_binding(scopes.back(), p + 1, JsBindingKind::Parameter);
                             else if (p + 3 < close && tokens[p].text == "." &&
                                      tokens[p + 1].text == "." && tokens[p + 2].text == "." &&
                                      tokens[p + 3].kind == JsTokenKind::Identifier) {
@@ -1075,8 +1083,14 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const std::size_t new_size = ordinary * replacement.size() +
                                          shorthand * (binding.name.size() + 1 + replacement.size());
             if (new_size >= old_size) { occupied.insert(binding.name); continue; }
-            for (std::size_t token : binding.declaration_tokens)
-                replacements.push_back({tokens[token].begin, tokens[token].end, replacement});
+            for (std::size_t token : binding.declaration_tokens) {
+                const bool object_pattern_shorthand = binding.kind == JsBindingKind::Parameter &&
+                    token && tokens[token - 1].text == "{" && token + 1 < tokens.size() &&
+                    (tokens[token + 1].text == "}" || tokens[token + 1].text == ",");
+                replacements.push_back({tokens[token].begin, tokens[token].end,
+                    object_pattern_shorthand ? std::string(binding.name) + ":" + replacement
+                                             : replacement});
+            }
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
                 const JsReference& reference = graph.references[reference_id];
                 const bool shorthand = reference.token < syntax.identifier_roles.size() &&
@@ -1199,7 +1213,7 @@ std::vector<JsReplacement> plan_js_concise_arrow_renaming(
     return replacements;
 }
 
-std::vector<JsReplacement> plan_js_simple_destructuring_parameters(
+[[maybe_unused]] std::vector<JsReplacement> plan_js_simple_destructuring_parameters(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string_view> reserved = {
@@ -2962,8 +2976,6 @@ static bool minify_javascript(const std::string& input, std::string& output,
             if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
                 auto concise = plan_js_concise_arrow_renaming(tokens, syntax);
                 replacements.insert(replacements.end(), concise.begin(), concise.end());
-                auto destructuring = plan_js_simple_destructuring_parameters(tokens, syntax);
-                replacements.insert(replacements.end(), destructuring.begin(), destructuring.end());
             }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));

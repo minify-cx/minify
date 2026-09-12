@@ -732,6 +732,8 @@ int main() {
     eq(structured,"function total({longValue:$}){return $+$}","structured object destructuring parameter");
     expect(minify::javascript("function total([longValue]){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total([$]){return $+$}","structured array destructuring parameter");
+    expect(minify::javascript("function total({longValue}){return function(){return longValue+longValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total({longValue:$}){return function(){return $+$}}","structured captured destructuring parameter");
     expect(minify::javascript("function blocks(flag){if(flag){let firstValue=1;use(firstValue)}else{let secondValue=2;use(secondValue)}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function blocks($){if($){let _=1;use(_)}else{let _=2;use(_)}}","structured disjoint lexical name reuse");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
