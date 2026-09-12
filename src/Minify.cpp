@@ -175,7 +175,9 @@ struct JsSyntaxNode {
 };
 struct JsConcreteSyntax {
     std::vector<JsSyntaxNode> nodes;
+    std::vector<std::vector<std::size_t>> children;
     std::vector<std::size_t> node_at_token;
+    std::vector<std::size_t> matching_token;
     std::vector<JsIdentifierRole> identifier_roles;
     bool balanced = true;
 };
@@ -211,7 +213,9 @@ JsGroupRole js_group_role(const std::vector<JsToken>& tokens, JsSyntaxKind kind,
 JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     JsConcreteSyntax syntax;
     syntax.nodes.push_back({JsSyntaxKind::Root, JsGroupRole::Root, 0, tokens.size(), 0});
+    syntax.children.emplace_back();
     syntax.node_at_token.resize(tokens.size(), 0);
+    syntax.matching_token.resize(tokens.size(), tokens.size());
     syntax.identifier_roles.resize(tokens.size(), JsIdentifierRole::Unknown);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
@@ -220,8 +224,11 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             : text == "[" ? JsSyntaxKind::Brackets
             : text == "{" ? JsSyntaxKind::Braces : JsSyntaxKind::Token;
         if (kind != JsSyntaxKind::Token) {
+            const std::size_t parent = groups.back();
             syntax.nodes.push_back({kind, js_group_role(tokens, kind, index), index,
-                                    tokens.size(), groups.back()});
+                                    tokens.size(), parent});
+            syntax.children.emplace_back();
+            syntax.children[parent].push_back(syntax.nodes.size() - 1);
             groups.push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = groups.back();
         } else if (text == ")" || text == "]" || text == "}") {
@@ -229,10 +236,20 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
                 : text == "]" ? JsSyntaxKind::Brackets : JsSyntaxKind::Braces;
             if (groups.size() == 1 || syntax.nodes[groups.back()].kind != expected)
                 syntax.balanced = false;
-            else { syntax.nodes[groups.back()].last_token = index + 1; groups.pop_back(); }
+            else {
+                const std::size_t group = groups.back();
+                syntax.nodes[group].last_token = index + 1;
+                syntax.node_at_token[index] = group;
+                syntax.matching_token[syntax.nodes[group].first_token] = index;
+                syntax.matching_token[index] = syntax.nodes[group].first_token;
+                groups.pop_back();
+            }
         } else {
+            const std::size_t parent = groups.back();
             syntax.nodes.push_back({JsSyntaxKind::Token, JsGroupRole::Unknown,
-                                    index, index + 1, groups.back()});
+                                    index, index + 1, parent});
+            syntax.children.emplace_back();
+            syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
         }
     }
