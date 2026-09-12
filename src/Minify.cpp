@@ -625,13 +625,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             function.last_token > tokens.size() || !function.first_token) continue;
 
         bool unsafe = unit_dynamic[unit];
-        bool nested_dynamic = false;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
-            if (unit_of_scope[graph.scope_at_token[i]] != unit) {
-                if (tokens[i].text == "eval" || tokens[i].text == "with")
-                    nested_dynamic = true;
-                continue;
-            }
+            if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
             if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
                 (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
                 unsafe = true;
@@ -669,8 +664,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                     return graph.references[reference].captured;
                 });
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
-            if (supported && (!captured || !nested_dynamic) && duplicates == 1 &&
-                !reserved.count(candidate.name) &&
+            if (supported && !captured && duplicates == 1 && !reserved.count(candidate.name) &&
                 candidate.name.size() > 2)
                 eligible.push_back(binding);
             else
@@ -682,14 +676,6 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 reference.binding_scope >= graph.scopes.size() ||
                 unit_of_scope[reference.binding_scope] != unit)
                 occupied.insert(tokens[reference.token].text);
-        }
-        // A captured binding may be shortened only to a spelling absent from
-        // every descendant function. Otherwise a nested declaration could
-        // intercept the renamed reference.
-        for (std::size_t token = function.first_token; token < function.last_token; ++token) {
-            if (tokens[token].kind == JsTokenKind::Identifier &&
-                unit_of_scope[graph.scope_at_token[token]] != unit)
-                occupied.insert(tokens[token].text);
         }
         std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
             return graph.references_by_binding[left].size() >
@@ -1173,6 +1159,10 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
     for (std::size_t declaration = 0; declaration + 4 < tokens.size(); ++declaration) {
         if (tokens[declaration].text != "var" ||
             tokens[declaration + 1].kind != JsTokenKind::Identifier) continue;
+        // A declaration in a for/for-in/for-of header is not a statement
+        // boundary. Scanning onward from it can otherwise consume the loop
+        // body and join an unrelated declaration after the loop.
+        if (declaration && tokens[declaration - 1].text == "(") continue;
         unsigned parens = 0, brackets = 0, braces = 0;
         for (std::size_t end = declaration + 2; end + 2 < tokens.size(); ++end) {
             const std::string_view text = tokens[end].text;
@@ -1190,38 +1180,6 @@ std::vector<JsReplacement> plan_js_var_declaration_joins(const std::vector<JsTok
             }
             break;
         }
-    }
-    return replacements;
-}
-
-std::vector<JsReplacement> plan_js_unused_local_vars(
-    const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
-    const JsSemanticFacts& facts, const JsConcreteSyntax& syntax) {
-    std::vector<JsReplacement> replacements;
-    for (std::size_t binding_id = 0; binding_id < graph.bindings.size(); ++binding_id) {
-        const JsBinding& binding = graph.bindings[binding_id];
-        if (binding.kind != JsBindingKind::Var || binding.scope >= graph.scopes.size() ||
-            graph.scopes[binding.scope].kind != JsScopeKind::Function ||
-            graph.scopes[binding.scope].dynamic_lookup ||
-            !graph.references_by_binding[binding_id].empty() || binding.token == 0)
-            continue;
-        const std::size_t keyword = binding.token - 1;
-        if (tokens[keyword].text != "var") continue;
-        const std::size_t node = keyword < syntax.node_at_token.size()
-            ? syntax.node_at_token[keyword] : syntax.nodes.size();
-        const std::size_t parent = node < syntax.nodes.size()
-            ? syntax.nodes[node].parent : syntax.nodes.size();
-        if (parent >= syntax.nodes.size() ||
-            syntax.nodes[parent].role != JsGroupRole::Block) continue;
-        std::size_t end = binding.token + 1;
-        if (end < tokens.size() && tokens[end].text == ";") {
-            replacements.push_back({tokens[keyword].begin, tokens[end].end, ""});
-            continue;
-        }
-        if (end + 2 < tokens.size() && tokens[end].text == "=" &&
-            facts.values[end + 1] != JsValueKind::Unknown &&
-            tokens[end + 2].text == ";")
-            replacements.push_back({tokens[keyword].begin, tokens[end + 2].end, ""});
     }
     return replacements;
 }
@@ -2688,11 +2646,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     append(plan_js_return_conditionals(tokens));
                 }
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
-                auto unused_vars = pass_enabled(JavaScriptOptimizationPass::UnusedBinding)
-                    ? plan_js_unused_local_vars(tokens, scopes, facts, syntax)
-                    : std::vector<JsReplacement>{};
-                if (!unused_vars.empty()) append(std::move(unused_vars));
-                else if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
+                if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
                     append(plan_js_var_declaration_joins(tokens));
                 if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens, facts));
                 if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
