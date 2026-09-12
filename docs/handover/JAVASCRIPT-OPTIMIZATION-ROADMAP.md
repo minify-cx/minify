@@ -157,3 +157,12 @@ extraction remains open. Checkpoint 10 is likewise Linux-complete only. macOS
 and Windows conformance runs, a fixed-host RSS comparison, PostCSS installation,
 and representative real-bundle comparisons remain required before a portable
 release claim.
+
+### Token-inventory profile
+
+An instrumented 40-iteration profile found that passing the inventory hook as
+`std::function` leaked type-erasure overhead into conservative scans: its
+manager path appeared roughly 60.4 million times and accounted for 4.1% of all
+sampled time. Checkpoint 11 replaced it with a nullable recorder pointer.
+Conservative mode now passes null and performs no inventory allocation; an
+explicit structured or aggressive policy supplies the recorder.

@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <functional>
 #include <initializer_list>
 #include <string>
 #include <unordered_set>
@@ -92,6 +91,14 @@ struct JsToken {
     std::string text;
     std::size_t begin;
     std::size_t end;
+};
+
+struct JsTokenRecorder {
+    const std::string& source;
+    std::vector<JsToken>& tokens;
+    void record(JsTokenKind kind, std::size_t begin, std::size_t end) {
+        tokens.push_back({kind, source.substr(begin, end - begin), begin, end});
+    }
 };
 
 struct JsReplacement {
@@ -245,8 +252,7 @@ bool js_line_terminator_in(const std::string& input, std::size_t begin, std::siz
 
 bool copy_template_literal(const std::string& input, std::size_t& i,
                            std::string& output, std::string& error,
-                           const std::function<void(JsTokenKind, std::size_t,
-                                                    std::size_t)>& record = {}) {
+                           JsTokenRecorder* recorder = nullptr) {
     struct Frame {
         bool expression;
         std::size_t braces;
@@ -264,12 +270,12 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
         if (!frame.expression) {
             if (c == '\\' && i < input.size()) output.push_back(input[i++]);
             else if (c == '`') {
-                if (record) record(JsTokenKind::Template, frame.segment_begin, i);
+                if (recorder) recorder->record(JsTokenKind::Template, frame.segment_begin, i);
                 stack.pop_back();
                 if (stack.empty()) return true;
             } else if (c == '$' && i < input.size() && input[i] == '{') {
                 output.push_back(input[i++]);
-                if (record) record(JsTokenKind::Template, frame.segment_begin, i);
+                if (recorder) recorder->record(JsTokenKind::Template, frame.segment_begin, i);
                 frame.expression = true;
                 frame.braces = 1;
                 frame.can_start_regex = true;
@@ -291,7 +297,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                 else if (q == '\\') escaped = true;
                 else if (q == quote) break;
             }
-            if (record) record(JsTokenKind::String, begin, i);
+            if (recorder) recorder->record(JsTokenKind::String, begin, i);
             frame.can_start_regex = false;
         } else if (c == '`') {
             stack.push_back({false, 0, true, i - 1});
@@ -321,7 +327,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             if (!closed) { error = "unterminated JavaScript regular expression"; output.clear(); return false; }
             while (i < input.size() && std::isalpha(static_cast<unsigned char>(input[i])))
                 output.push_back(input[i++]);
-            if (record) record(JsTokenKind::Regex, begin, i);
+            if (recorder) recorder->record(JsTokenKind::Regex, begin, i);
             frame.can_start_regex = false;
         } else if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             const std::size_t begin = i - 1;
@@ -337,7 +343,7 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             };
             frame.can_start_regex =
                 prefix_words.count(input.substr(begin, i - begin)) != 0;
-            if (record) record(JsTokenKind::Identifier, begin, i);
+            if (recorder) recorder->record(JsTokenKind::Identifier, begin, i);
         } else if (std::isdigit(static_cast<unsigned char>(c))) {
             const std::size_t begin = i - 1;
             bool exponent = false;
@@ -358,10 +364,10 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                 }
                 break;
             }
-            if (record) record(JsTokenKind::Number, begin, i);
+            if (recorder) recorder->record(JsTokenKind::Number, begin, i);
             frame.can_start_regex = false;
         } else if (c == '{') {
-            if (record) record(JsTokenKind::Punctuator, i - 1, i);
+            if (recorder) recorder->record(JsTokenKind::Punctuator, i - 1, i);
             ++frame.braces;
             frame.can_start_regex = true;
         } else if (c == '}' && --frame.braces == 0) {
@@ -372,10 +378,10 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                    c == '=' || c == '!' || c == '?' || c == '&' || c == '|' ||
                    c == '+' || c == '-' || c == '*' || c == '%' || c == '<' ||
                    c == '>' || c == '~' || c == '^') {
-            if (record) record(JsTokenKind::Punctuator, i - 1, i);
+            if (recorder) recorder->record(JsTokenKind::Punctuator, i - 1, i);
             frame.can_start_regex = true;
         } else {
-            if (record) record(JsTokenKind::Punctuator, i - 1, i);
+            if (recorder) recorder->record(JsTokenKind::Punctuator, i - 1, i);
             frame.can_start_regex = false;
         }
     }
@@ -1024,9 +1030,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
     // inventory while those modes intentionally retain conservative output.
     // Positions refer to the source, never to a partially rewritten output.
     if (collect_tokens) tokens.reserve(input.size() / 4);
+    JsTokenRecorder token_recorder{input, tokens};
+    JsTokenRecorder* recorder = collect_tokens ? &token_recorder : nullptr;
     auto record_token = [&](JsTokenKind kind, std::size_t begin, std::size_t end) {
-        if (collect_tokens)
-            tokens.push_back({kind, input.substr(begin, end - begin), begin, end});
+        if (recorder) recorder->record(kind, begin, end);
     };
     std::string before_semicolon_token;
     bool pending_class_brace = false;
@@ -1210,7 +1217,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == '`') {
             emit_pending(c);
-            if (!copy_template_literal(input, i, output, error, record_token)) return false;
+            if (!copy_template_literal(input, i, output, error, recorder)) return false;
             pending_control_paren = false;
             can_start_regex = false;
             last_token = "value";
