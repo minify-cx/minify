@@ -709,6 +709,9 @@ int main() {
     eq(structured,"function keep($){return{longName:$}}","structured shorthand-aware printing");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
+    minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
+    expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
+    eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
 
 
     std::cout << "Standalone minifier smoke test passed\n";

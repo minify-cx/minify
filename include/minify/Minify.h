@@ -12,6 +12,7 @@ enum class OptimizationLevel { Conservative, Structured, Aggressive };
 
 struct Options {
     OptimizationLevel optimization = OptimizationLevel::Conservative;
+    bool structured_jsx_expressions = false;
 };
 
 bool html(const std::string& input, std::string& output, std::string& error);
