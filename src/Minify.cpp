@@ -5,8 +5,10 @@
 #include <cctype>
 #include <cstdint>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 namespace minify {
@@ -322,8 +324,11 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                             tokens.size(), false, {}});
     std::vector<std::size_t> scopes{0};
     std::vector<bool> brace_creates_scope;
+    std::vector<bool> binding_at_token(tokens.size(), false);
     JsScopeKind pending = JsScopeKind::Block;
     auto add_binding = [&](std::size_t scope, std::size_t token, JsBindingKind kind) {
+        if (binding_at_token[token]) return;
+        binding_at_token[token] = true;
         const std::size_t binding = graph.bindings.size();
         graph.bindings.push_back({tokens[token].text, token, scope, kind});
         graph.scopes[scope].bindings.push_back(binding);
@@ -355,9 +360,23 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             if (pending == JsScopeKind::Function && index && tokens[index - 1].text == ")") {
                 std::size_t depth = 1, open = index - 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
-                if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
-                    if (tokens[p].kind == JsTokenKind::Identifier && (p == open + 1 || tokens[p - 1].text == ","))
-                        add_binding(scopes.back(), p, JsBindingKind::Parameter);
+                if (!depth) {
+                    for (std::size_t p = open + 1; p < index; ++p)
+                        graph.scope_at_token[p] = scopes.back();
+                    unsigned nested = 0;
+                    bool binding_position = true;
+                    for (std::size_t p = open + 1; p + 1 < index; ++p) {
+                        const std::string& parameter = tokens[p].text;
+                        if (binding_position && nested == 0) {
+                            if (tokens[p].kind == JsTokenKind::Identifier)
+                                add_binding(scopes.back(), p, JsBindingKind::Parameter);
+                            binding_position = false;
+                        }
+                        if (parameter == "(" || parameter == "[" || parameter == "{") ++nested;
+                        else if ((parameter == ")" || parameter == "]" || parameter == "}") && nested) --nested;
+                        else if (parameter == "," && nested == 0) binding_position = true;
+                    }
+                }
             } else if (pending == JsScopeKind::Catch && index && tokens[index - 1].text == ")") {
                 std::size_t depth = 1, open = index - 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
@@ -390,6 +409,34 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             }
         }
     }
+    // Discover every simple declarator, not only the first name after the
+    // declaration keyword. Initializer commas inside delimiter groups are
+    // skipped; destructuring patterns remain deliberately outside this pass.
+    for (std::size_t keyword = 0; keyword < tokens.size(); ++keyword) {
+        const std::string& declaration = tokens[keyword].text;
+        if (declaration != "var" && declaration != "let" && declaration != "const") continue;
+        const JsBindingKind kind = declaration == "var" ? JsBindingKind::Var : JsBindingKind::Lexical;
+        unsigned nested = 0;
+        bool binding_position = true;
+        for (std::size_t p = keyword + 1; p < tokens.size(); ++p) {
+            const std::string& text = tokens[p].text;
+            if (nested == 0 && (text == ";" || text == "in" || text == "of" || text == ")")) break;
+            if (binding_position && nested == 0) {
+                if (tokens[p].kind == JsTokenKind::Identifier) {
+                    std::size_t binding_scope = graph.scope_at_token[keyword];
+                    if (kind == JsBindingKind::Var) {
+                        while (binding_scope && graph.scopes[binding_scope].kind != JsScopeKind::Function)
+                            binding_scope = graph.scopes[binding_scope].parent;
+                    }
+                    add_binding(binding_scope, p, kind);
+                }
+                binding_position = false;
+            }
+            if (text == "(" || text == "[" || text == "{") ++nested;
+            else if ((text == ")" || text == "]" || text == "}") && nested) --nested;
+            else if (text == "," && nested == 0) binding_position = true;
+        }
+    }
     return graph;
 }
 
@@ -397,8 +444,11 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                            JsConcreteSyntax& syntax) {
     graph.references_by_binding.resize(graph.bindings.size());
     std::unordered_set<std::size_t> declarations;
+    std::vector<std::unordered_map<std::string, std::size_t>> bindings_by_name(graph.scopes.size());
     for (const auto& binding : graph.bindings) {
         declarations.insert(binding.token);
+        const std::size_t binding_id = static_cast<std::size_t>(&binding - graph.bindings.data());
+        bindings_by_name[binding.scope].emplace(binding.name, binding_id);
         if (binding.token < syntax.identifier_roles.size())
             syntax.identifier_roles[binding.token] = JsIdentifierRole::Binding;
     }
@@ -416,8 +466,8 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
         std::size_t resolved = graph.bindings.size();
         std::size_t resolved_scope = graph.scopes.size();
         for (std::size_t scope = containing;; scope = graph.scopes[scope].parent) {
-            auto found = std::find_if(graph.scopes[scope].bindings.begin(), graph.scopes[scope].bindings.end(), [&](std::size_t binding){ return graph.bindings[binding].name == tokens[index].text; });
-            if (found != graph.scopes[scope].bindings.end()) { resolved = *found; resolved_scope = scope; break; }
+            const auto found = bindings_by_name[scope].find(tokens[index].text);
+            if (found != bindings_by_name[scope].end()) { resolved = found->second; resolved_scope = scope; break; }
             if (!scope) break;
         }
         const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
@@ -463,30 +513,130 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
     std::vector<JsReplacement> replacements;
-    static const std::unordered_set<std::string> unsafe_names={"await","yield","arguments","eval"};
-    for(std::size_t si=1;si<graph.scopes.size();++si){
-        const JsScope& scope=graph.scopes[si];
-        if(scope.kind!=JsScopeKind::Function||scope.dynamic_lookup||scope.last_token>tokens.size()||!scope.first_token)continue;
-        bool unsafe=false;std::size_t object_depth=0;
-        for(std::size_t i=scope.first_token+1;i+1<scope.last_token;++i){
-            if(tokens[i].text=="{"){const std::string& p=tokens[i-1].text;if(p=="return"||p=="="||p=="("||p=="["||p==","||p==":")++object_depth;else unsafe=true;}
-            else if(tokens[i].text=="}"){if(object_depth)--object_depth;else unsafe=true;}
-            if(tokens[i].text=="arguments"||(tokens[i].text=="="&&i+1<scope.last_token&&tokens[i+1].text==">"))unsafe=true;
+    static const std::unordered_set<std::string> reserved = {
+        "await","break","case","catch","class","const","continue","debugger",
+        "default","delete","do","else","enum","eval","export","extends","false",
+        "finally","for","function","if","implements","import","in","instanceof",
+        "interface","let","new","null","package","private","protected","public",
+        "return","static","super","switch","this","throw","true","try","typeof",
+        "var","void","while","with","yield","arguments"
+    };
+    auto has_function_ancestor = [&](std::size_t scope) {
+        for (std::size_t parent = graph.scopes[scope].parent; parent;
+             parent = graph.scopes[parent].parent)
+            if (graph.scopes[parent].kind == JsScopeKind::Function) return true;
+        return false;
+    };
+    std::vector<std::unordered_map<std::string, std::size_t>> binding_counts(graph.scopes.size());
+    for (const JsBinding& binding : graph.bindings)
+        ++binding_counts[binding.scope][binding.name];
+    const std::size_t no_unit = graph.scopes.size();
+    std::vector<std::size_t> unit_of_scope(graph.scopes.size(), no_unit);
+    for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
+        for (std::size_t cursor = scope; cursor; cursor = graph.scopes[cursor].parent)
+            if (graph.scopes[cursor].kind == JsScopeKind::Function)
+                unit_of_scope[scope] = cursor;
+    }
+    std::vector<std::vector<std::size_t>> bindings_by_unit(graph.scopes.size());
+    std::vector<std::vector<std::size_t>> references_by_unit(graph.scopes.size());
+    std::vector<bool> unit_dynamic(graph.scopes.size(), false);
+    std::vector<bool> unit_has_nested_function(graph.scopes.size(), false);
+    for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope)
+        if (unit_of_scope[scope] < graph.scopes.size()) {
+            if (graph.scopes[scope].dynamic_lookup) unit_dynamic[unit_of_scope[scope]] = true;
+            if (scope != unit_of_scope[scope] && graph.scopes[scope].kind == JsScopeKind::Function)
+                unit_has_nested_function[unit_of_scope[scope]] = true;
         }
-        if(unsafe||tokens[scope.first_token-1].text!=")")continue;
-        std::size_t depth=1,open=scope.first_token-1;
-        while(open&&depth){--open;if(tokens[open].text==")")++depth;else if(tokens[open].text=="(")--depth;}
-        if(depth)continue;
-        bool simple=true;std::vector<std::size_t> bindings;
-        for(std::size_t i=open+1;i+1<scope.first_token;++i){if((i-open)%2==1){if(tokens[i].kind!=JsTokenKind::Identifier)simple=false;else bindings.push_back(i);}else if(tokens[i].text!=",")simple=false;}
-        if(!simple||bindings.empty())continue;
-        for(const auto binding_id:scope.bindings){const auto& local=graph.bindings[binding_id];if(local.token>scope.first_token&&local.token<scope.last_token&&local.token){const std::string& previous=tokens[local.token-1].text;if(previous=="var"||previous=="let"||previous=="const")bindings.push_back(local.token);}}
-        std::unordered_set<std::string> occupied,unique;
-        for(std::size_t i=open+1;i+1<scope.last_token;++i)if(tokens[i].kind==JsTokenKind::Identifier)occupied.insert(tokens[i].text);
-        for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
-        if(!simple)continue;
-        std::size_t ni=0;
-        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;const auto identity=std::find_if(graph.bindings.begin(),graph.bindings.end(),[&](const JsBinding& candidate){return candidate.token==binding&&candidate.scope==si;});if(identity==graph.bindings.end())continue;const std::size_t binding_id=static_cast<std::size_t>(identity-graph.bindings.begin());std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding[binding_id]){const auto& ref=graph.references[ri];const bool shorthand=ref.token<syntax.identifier_roles.size()&&syntax.identifier_roles[ref.token]==JsIdentifierRole::ShorthandProperty;replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
+    for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
+        const std::size_t unit = unit_of_scope[graph.bindings[binding].scope];
+        if (unit < graph.scopes.size()) bindings_by_unit[unit].push_back(binding);
+    }
+    for (std::size_t reference = 0; reference < graph.references.size(); ++reference) {
+        const std::size_t unit = unit_of_scope[graph.references[reference].scope];
+        if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
+    }
+    for (std::size_t unit = 1; unit < graph.scopes.size(); ++unit) {
+        const JsScope& function = graph.scopes[unit];
+        if (function.kind != JsScopeKind::Function || has_function_ancestor(unit) ||
+            function.last_token > tokens.size() || !function.first_token) continue;
+
+        bool unsafe = unit_dynamic[unit] || unit_has_nested_function[unit];
+        for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
+            if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
+                (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
+                unsafe = true;
+            // A block following a non-control parameter list is an object/class
+            // method body, which the lightweight scope builder cannot yet model.
+            if (tokens[i].text == "{" && tokens[i].brace_kind == JsBraceKind::Block && i &&
+                tokens[i - 1].text == ")") {
+                std::size_t open = i - 1, depth = 1;
+                while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
+                const std::string before = open ? tokens[open - 1].text : std::string();
+                bool function_parameters = false;
+                for (std::size_t lookback = open; lookback && open - lookback < 4; --lookback)
+                    if (tokens[lookback - 1].text == "function") function_parameters = true;
+                if (before != "if" && before != "for" && before != "while" &&
+                    before != "switch" && before != "catch" && before != "with" &&
+                    !function_parameters) unsafe = true;
+            }
+        }
+        if (unsafe) continue;
+
+        std::vector<std::size_t> eligible;
+        std::unordered_set<std::string> occupied = reserved;
+        for (std::size_t binding : bindings_by_unit[unit]) {
+            const JsBinding& candidate = graph.bindings[binding];
+            const bool supported = candidate.kind == JsBindingKind::Parameter ||
+                                   candidate.kind == JsBindingKind::Var ||
+                                   candidate.kind == JsBindingKind::Lexical ||
+                                   candidate.kind == JsBindingKind::Catch;
+            const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
+            if (supported && duplicates == 1 && !reserved.count(candidate.name))
+                eligible.push_back(binding);
+            else
+                occupied.insert(candidate.name);
+        }
+        for (std::size_t reference_id : references_by_unit[unit]) {
+            const JsReference& reference = graph.references[reference_id];
+            if (reference.binding >= graph.bindings.size() ||
+                reference.binding_scope >= graph.scopes.size() ||
+                unit_of_scope[reference.binding_scope] != unit)
+                occupied.insert(tokens[reference.token].text);
+        }
+        std::stable_sort(eligible.begin(), eligible.end(), [&](std::size_t left, std::size_t right) {
+            return graph.references_by_binding[left].size() >
+                   graph.references_by_binding[right].size();
+        });
+
+        std::size_t next_name = 0;
+        for (std::size_t binding_id : eligible) {
+            const JsBinding& binding = graph.bindings[binding_id];
+            std::string replacement;
+            do replacement = js_short_name(next_name++);
+            while (occupied.count(replacement));
+            std::size_t ordinary = 1, shorthand = 0;
+            for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
+                const JsReference& reference = graph.references[reference_id];
+                if (reference.token < syntax.identifier_roles.size() &&
+                    syntax.identifier_roles[reference.token] == JsIdentifierRole::ShorthandProperty)
+                    ++shorthand;
+                else
+                    ++ordinary;
+            }
+            const std::size_t old_size = (ordinary + shorthand) * binding.name.size();
+            const std::size_t new_size = ordinary * replacement.size() +
+                                         shorthand * (binding.name.size() + 1 + replacement.size());
+            if (new_size >= old_size) { occupied.insert(binding.name); continue; }
+            replacements.push_back({tokens[binding.token].begin, tokens[binding.token].end, replacement});
+            for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
+                const JsReference& reference = graph.references[reference_id];
+                const bool shorthand = reference.token < syntax.identifier_roles.size() &&
+                    syntax.identifier_roles[reference.token] == JsIdentifierRole::ShorthandProperty;
+                replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
+                    shorthand ? binding.name + ":" + replacement : replacement});
+            }
+            occupied.insert(replacement);
+        }
     }
     return replacements;
 }
@@ -674,15 +824,29 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
 }
 
 std::string js_short_name(std::size_t index) {
-    if (index == 0) return "$";
-    if (index == 1) return "_";
-    index -= 2;
-    if (index < 26) return std::string(1, static_cast<char>('a' + index));
-    index -= 26;
-    if (index < 26) return std::string(1, static_cast<char>('A' + index));
-    index -= 26;
-    return std::string(1, static_cast<char>('a' + (index / 26) % 26)) +
-           static_cast<char>('a' + index % 26);
+    static const std::string first = "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    static const std::string continuation =
+        "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    std::size_t length = 1;
+    std::size_t capacity = first.size();
+    while (index >= capacity) {
+        index -= capacity;
+        ++length;
+        if (capacity > std::numeric_limits<std::size_t>::max() / continuation.size()) break;
+        capacity *= continuation.size();
+    }
+    std::size_t suffix_capacity = 1;
+    for (std::size_t position = 1; position < length; ++position)
+        suffix_capacity *= continuation.size();
+    std::string name(length, '$');
+    name[0] = first[(index / suffix_capacity) % first.size()];
+    index %= suffix_capacity;
+    for (std::size_t position = 1; position < length; ++position) {
+        suffix_capacity /= continuation.size();
+        name[position] = continuation[(index / suffix_capacity) % continuation.size()];
+        index %= suffix_capacity;
+    }
+    return name;
 }
 
 [[maybe_unused]] std::vector<JsReplacement> plan_js_parameter_mangling(

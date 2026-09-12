@@ -710,6 +710,8 @@ int main() {
     eq(structured,"function total($,_){return $+_}","structured simple parameter renaming");
     expect(minify::javascript("function total(longValue){const doubledValue=longValue*2;return doubledValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total($){const _=$*2;return _}","structured local binding renaming");
+    expect(minify::javascript("function total(longValue=1,otherValue=2){let firstValue=longValue,secondValue=otherValue;return firstValue+secondValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function total($=1,_=2){let a=$,b=_;return a+b}","structured simple default and comma binding discovery");
     expect(minify::javascript("function keep(longName){return {longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{longName:$}}","structured shorthand-aware printing");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
@@ -734,7 +736,7 @@ int main() {
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
     expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"function f(){var first,second;return 1}","aggressive adjacent var declaration join");
+    eq(aggressive,"function f(){var $,_;return 1}","aggressive adjacent var declaration join");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
     minify::Options bisect_options(minify::OptimizationLevel::Aggressive);
