@@ -146,6 +146,13 @@ syntax inventories, canonical binding/reference/capture identities, a topology
 oracle, nested-name barriers and an interference-aware deterministic allocator.
 Captured-binding rewriting remains disabled until checkpoint 16.
 
+The bounded checkpoint 16–30 implementation is recorded in
+`docs/evidence/javascript-optimizer-checkpoints-16-30.md`. Coordinated captured
+binding mangling is now enabled and validated on executable bundles. The effect,
+CFG, liveness and compression portions remain intentionally fail-closed subsets;
+their broader roadmap definitions must not be inferred from the checkpoint
+numbers alone.
+
 ## Aggressive checkpoint execution — 2026-09-12
 
 Checkpoints 21–30 activate a separately named, CLI/API opt-in aggressive layer.
