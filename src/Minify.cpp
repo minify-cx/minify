@@ -18,6 +18,22 @@ bool ws(char c) {
     return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f';
 }
 
+bool ascii_alpha(unsigned char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+bool ascii_digit(unsigned char c) {
+    return c >= '0' && c <= '9';
+}
+
+bool ascii_alnum(unsigned char c) {
+    return ascii_alpha(c) || ascii_digit(c);
+}
+
+bool ascii_hex_digit(unsigned char c) {
+    return ascii_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 std::string shortest_js_literal(const std::string& original,
                                 std::initializer_list<std::string> alternatives) {
     const std::string* best = &original;
@@ -962,7 +978,7 @@ std::string js_short_name(std::size_t index, const std::string& first,
             if ((p - cursor) % 2 == 1) {
                 const std::string& name = tokens[p].text;
                 if (name.empty() || reserved_words.count(name) != 0 ||
-                    !(std::isalpha(static_cast<unsigned char>(name[0])) ||
+                    !(ascii_alpha(static_cast<unsigned char>(name[0])) ||
                       name[0] == '_' || name[0] == '$')) {
                     simple_params = false;
                     break;
@@ -1123,14 +1139,14 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
                 else if (q == '\n' || q == '\r') break;
             }
             if (!closed) { error = "unterminated JavaScript regular expression"; output.clear(); return false; }
-            while (i < input.size() && std::isalpha(static_cast<unsigned char>(input[i])))
+            while (i < input.size() && ascii_alpha(static_cast<unsigned char>(input[i])))
                 output.push_back(input[i++]);
             if (recorder) recorder->record(JsTokenKind::Regex, begin, i);
             frame.can_start_regex = false;
-        } else if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
+        } else if (ascii_alpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             const std::size_t begin = i - 1;
             while (i < input.size() &&
-                   (std::isalnum(static_cast<unsigned char>(input[i])) ||
+                   (ascii_alnum(static_cast<unsigned char>(input[i])) ||
                     input[i] == '_' || input[i] == '$')) {
                 output.push_back(input[i]);
                 ++i;
@@ -1142,13 +1158,13 @@ bool copy_template_literal(const std::string& input, std::size_t& i,
             frame.can_start_regex =
                 prefix_words.count(input.substr(begin, i - begin)) != 0;
             if (recorder) recorder->record(JsTokenKind::Identifier, begin, i);
-        } else if (std::isdigit(static_cast<unsigned char>(c))) {
+        } else if (ascii_digit(static_cast<unsigned char>(c))) {
             const std::size_t begin = i - 1;
             bool exponent = false;
             while (i < input.size()) {
                 const unsigned char u = static_cast<unsigned char>(input[i]);
                 const char q = input[i];
-                if (std::isalnum(u) || q == '.' || q == '_') {
+                if (ascii_alnum(u) || q == '.' || q == '_') {
                     exponent = q == 'e' || q == 'E';
                     output.push_back(q);
                     ++i;
@@ -1193,7 +1209,7 @@ bool word_char(char c) {
     // Be deliberately conservative for UTF-8: non-ASCII bytes may belong to a
     // JavaScript/CSS identifier, so removing adjacent whitespace could merge
     // tokens even though this lightweight scanner does not decode Unicode IDs.
-    return u >= 0x80 || std::isalnum(u) || c == '_' || c == '$' || c == '-' || c == '\\';
+    return u >= 0x80 || ascii_alnum(u) || c == '_' || c == '$' || c == '-' || c == '\\';
 }
 
 bool js_needs_separator(char left, char right, bool after_regex,
@@ -1203,13 +1219,13 @@ bool js_needs_separator(char left, char right, bool after_regex,
            (left == '+' && right == '+') ||
            (left == '-' && right == '-') ||
            (left == '/' && (right == '/' || right == '*')) ||
-           (after_regex && (std::isalpha(next) || right == '_' || right == '$' ||
+           (after_regex && (ascii_alpha(next) || right == '_' || right == '$' ||
                             next >= 0x80)) ||
            (left == '*' && right == '/') ||
            (preserve_jsx_boundary && left == '/' && right == '>') ||
            (preserve_jsx_boundary && left == '<' &&
-            (std::isalpha(next) || right == '>' || right == '/')) ||
-           (std::isdigit(static_cast<unsigned char>(left)) && right == '.');
+            (ascii_alpha(next) || right == '>' || right == '/')) ||
+           (ascii_digit(static_cast<unsigned char>(left)) && right == '.');
 }
 
 enum class JsLineTerminatorAction {
@@ -1438,7 +1454,7 @@ bool css(const std::string& input, std::string& output, std::string& error) {
                 escaped_ws = true;
                 in_hex_escape = false;
                 hex_escape_digits = 0;
-            } else if (std::isxdigit(static_cast<unsigned char>(escaped))) {
+            } else if (ascii_hex_digit(static_cast<unsigned char>(escaped))) {
                 // Hex escape: track following digits so a trailing whitespace
                 // terminator and any separator can be preserved.
                 in_hex_escape = true;
@@ -1541,7 +1557,7 @@ bool css(const std::string& input, std::string& output, std::string& error) {
             }
         } else {
             if (in_hex_escape) {
-                if (std::isxdigit(static_cast<unsigned char>(c)) && hex_escape_digits < 6) {
+                if (ascii_hex_digit(static_cast<unsigned char>(c)) && hex_escape_digits < 6) {
                     ++hex_escape_digits;
                 } else {
                     in_hex_escape = false;
@@ -1762,7 +1778,7 @@ bool html(const std::string& input, std::string& output, std::string& error) {
             while (n < j && ws(input[n])) ++n;
             if (n < j && input[n] != '/' && input[n] != '!' && input[n] != '?') {
                 std::size_t e = n;
-                while (e < j && (std::isalnum(static_cast<unsigned char>(input[e])) ||
+                while (e < j && (ascii_alnum(static_cast<unsigned char>(input[e])) ||
                                  input[e] == '-' || input[e] == ':')) ++e;
                 const std::string name = lower(input.substr(n, e - n));
                 if (name == "pre" || name == "textarea" || name == "script" ||
@@ -1933,11 +1949,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         // ASCII identifier/keyword token. Non-ASCII identifier bytes are kept
         // byte-for-byte by the generic path below.
-        if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
+        if (ascii_alpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             const std::size_t begin = i++;
             while (i < input.size()) {
                 const unsigned char u = static_cast<unsigned char>(input[i]);
-                if (!std::isalnum(u) && input[i] != '_' && input[i] != '$') break;
+                if (!ascii_alnum(u) && input[i] != '_' && input[i] != '$') break;
                 ++i;
             }
             const std::string word = input.substr(begin, i - begin);
@@ -1988,13 +2004,13 @@ static bool minify_javascript(const std::string& input, std::string& output,
             continue;
         }
 
-        if (std::isdigit(static_cast<unsigned char>(c))) {
+        if (ascii_digit(static_cast<unsigned char>(c))) {
             const std::size_t begin = i++;
             bool exponent = false;
             while (i < input.size()) {
                 const unsigned char u = static_cast<unsigned char>(input[i]);
                 const char q = input[i];
-                if (std::isalnum(u) || q == '.' || q == '_') {
+                if (ascii_alnum(u) || q == '.' || q == '_') {
                     exponent = q == 'e' || q == 'E';
                     ++i;
                     continue;
@@ -2134,7 +2150,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 return false;
             }
             while (i < input.size() &&
-                   std::isalpha(static_cast<unsigned char>(input[i])))
+                   ascii_alpha(static_cast<unsigned char>(input[i])))
                 output.push_back(input[i++]);
             record_token(JsTokenKind::Regex, begin, i);
             pending_control_paren = false;
@@ -2169,7 +2185,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 std::size_t start = end;
                 while (start > 0) {
                     const unsigned char ch = static_cast<unsigned char>(output[start - 1]);
-                    if (!(std::isalnum(ch) || output[start - 1] == '_' || output[start - 1] == '$' || ch >= 0x80)) break;
+                    if (!(ascii_alnum(ch) || output[start - 1] == '_' || output[start - 1] == '$' || ch >= 0x80)) break;
                     --start;
                 }
                 bool identifier = end > start;
@@ -2433,7 +2449,7 @@ bool svg(const std::string& input, std::string& output, std::string& error) {
 static bool looks_like_jsx_start(const std::string& input, std::size_t i) {
     if (i + 1 >= input.size() || input[i] != '<') return false;
     const unsigned char n = static_cast<unsigned char>(input[i + 1]);
-    return std::isalpha(n) || input[i + 1] == '>' || input[i + 1] == '/';
+    return ascii_alpha(n) || input[i + 1] == '>' || input[i + 1] == '/';
 }
 
 static bool looks_like_jsx_root_start(const std::string& input, std::size_t i) {
@@ -2475,7 +2491,7 @@ static bool looks_like_jsx_root_start(const std::string& input, std::size_t i) {
     std::size_t end = p;
     while (p > 0) {
         const unsigned char c = static_cast<unsigned char>(input[p - 1]);
-        if (!(std::isalnum(c) || input[p - 1] == '_' || input[p - 1] == '$')) break;
+        if (!(ascii_alnum(c) || input[p - 1] == '_' || input[p - 1] == '$')) break;
         --p;
     }
     const std::string word = input.substr(p, end - p);
@@ -2639,11 +2655,11 @@ static bool find_jsx_expression_end(const std::string& input, std::size_t start,
         // Track JavaScript keywords that put the scanner back into an
         // expression-prefix position. This matters for nested JSX after
         // `return`, `yield`, `await`, etc. inside a JSX expression block.
-        if (std::isalpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
+        if (ascii_alpha(static_cast<unsigned char>(c)) || c == '_' || c == '$') {
             const std::size_t begin = i++;
             while (i < limit) {
                 const unsigned char u = static_cast<unsigned char>(input[i]);
-                if (!std::isalnum(u) && input[i] != '_' && input[i] != '$') break;
+                if (!ascii_alnum(u) && input[i] != '_' && input[i] != '$') break;
                 ++i;
             }
             const std::string word = input.substr(begin, i - begin);
@@ -2724,7 +2740,7 @@ static bool find_jsx_expression_end(const std::string& input, std::size_t start,
                 else if (q == '\n' || q == '\r') break;
             }
             if (!closed) { error = "unterminated JavaScript regular expression in JSX expression"; return false; }
-            while (i < limit && std::isalpha(static_cast<unsigned char>(input[i]))) ++i;
+            while (i < limit && ascii_alpha(static_cast<unsigned char>(input[i]))) ++i;
             can_start_regex = false;
             continue;
         }
@@ -2811,13 +2827,13 @@ static bool minify_jsx(const std::string& input, std::string& output,
                              prev == '-' || prev == '*' || prev == '%' ||
                              prev == '~' || prev == '^' || prev == '>';
                 if (!regex_here &&
-                    (std::isalpha(static_cast<unsigned char>(prev)) ||
+                    (ascii_alpha(static_cast<unsigned char>(prev)) ||
                      prev == '_' || prev == '$')) {
                     std::size_t end = p;
                     while (p > js_start) {
                         const unsigned char c =
                             static_cast<unsigned char>(input[p - 1]);
-                        if (!(std::isalnum(c) || input[p - 1] == '_' ||
+                        if (!(ascii_alnum(c) || input[p - 1] == '_' ||
                               input[p - 1] == '$')) break;
                         --p;
                     }
@@ -2840,7 +2856,7 @@ static bool minify_jsx(const std::string& input, std::string& output,
                     else if (c == '\n' || c == '\r') break;
                 }
                 while (i < input.size() &&
-                       std::isalpha(static_cast<unsigned char>(input[i]))) ++i;
+                       ascii_alpha(static_cast<unsigned char>(input[i]))) ++i;
                 continue;
             }
         }
