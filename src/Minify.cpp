@@ -217,17 +217,29 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
 }
 
 enum class JsScopeKind { Script, Module, Function, Block, Class, Catch };
-struct JsBinding { std::string name; std::size_t token; };
-struct JsReference { std::size_t token; std::size_t scope; std::size_t binding_scope; };
+enum class JsBindingKind { Parameter, Var, Lexical, Function, Class, Catch, Unknown };
+struct JsBinding {
+    std::string name;
+    std::size_t token;
+    std::size_t scope;
+    JsBindingKind kind;
+};
+struct JsReference {
+    std::size_t token;
+    std::size_t scope;
+    std::size_t binding;
+    std::size_t binding_scope;
+};
 struct JsScope {
     JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
-    bool dynamic_lookup = false; std::vector<JsBinding> bindings;
+    bool dynamic_lookup = false; std::vector<std::size_t> bindings;
 };
 struct JsScopeGraph {
     std::vector<JsScope> scopes;
+    std::vector<JsBinding> bindings;
     std::vector<JsReference> references;
     std::vector<std::size_t> scope_at_token;
-    std::vector<std::vector<std::size_t>> references_by_binding_scope;
+    std::vector<std::vector<std::size_t>> references_by_binding;
 };
 
 JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
@@ -241,6 +253,11 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     std::vector<std::size_t> scopes{0};
     std::vector<bool> brace_creates_scope;
     JsScopeKind pending = JsScopeKind::Block;
+    auto add_binding = [&](std::size_t scope, std::size_t token, JsBindingKind kind) {
+        const std::size_t binding = graph.bindings.size();
+        graph.bindings.push_back({tokens[token].text, token, scope, kind});
+        graph.scopes[scope].bindings.push_back(binding);
+    };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         graph.scope_at_token[index] = scopes.back();
         const std::string& text = tokens[index].text;
@@ -260,7 +277,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
                 if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
                     if (tokens[p].kind == JsTokenKind::Identifier && (p == open + 1 || tokens[p - 1].text == ","))
-                        graph.scopes.back().bindings.push_back({tokens[p].text, p});
+                        add_binding(scopes.back(), p, JsBindingKind::Parameter);
             }
             pending = JsScopeKind::Block;
         } else if (text == "}" && !brace_creates_scope.empty()) {
@@ -271,17 +288,22 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             }
         } else if (index && tokens[index].kind == JsTokenKind::Identifier) {
             const std::string& previous = tokens[index - 1].text;
-            if (previous == "var" || previous == "let" || previous == "const" || previous == "function" || previous == "class" || previous == "catch")
-                graph.scopes[scopes.back()].bindings.push_back({text, index});
+            JsBindingKind kind = JsBindingKind::Unknown;
+            if (previous == "var") kind = JsBindingKind::Var;
+            else if (previous == "let" || previous == "const") kind = JsBindingKind::Lexical;
+            else if (previous == "function") kind = JsBindingKind::Function;
+            else if (previous == "class") kind = JsBindingKind::Class;
+            else if (previous == "catch") kind = JsBindingKind::Catch;
+            if (kind != JsBindingKind::Unknown) add_binding(scopes.back(), index, kind);
         }
     }
     return graph;
 }
 
 void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& tokens) {
-    graph.references_by_binding_scope.resize(graph.scopes.size());
+    graph.references_by_binding.resize(graph.bindings.size());
     std::unordered_set<std::size_t> declarations;
-    for (const auto& scope : graph.scopes) for (const auto& binding : scope.bindings) declarations.insert(binding.token);
+    for (const auto& binding : graph.bindings) declarations.insert(binding.token);
     static const std::unordered_set<std::string> non_references = {
         "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
     };
@@ -291,14 +313,15 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
         const std::string next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string();
         if (previous == "." || previous == "#" || (next == ":" && (previous == "{" || previous == ","))) continue;
         const std::size_t containing = graph.scope_at_token[index];
-        std::size_t resolved = tokens.size();
+        std::size_t resolved = graph.bindings.size();
+        std::size_t resolved_scope = graph.scopes.size();
         for (std::size_t scope = containing;; scope = graph.scopes[scope].parent) {
-            auto found = std::find_if(graph.scopes[scope].bindings.begin(), graph.scopes[scope].bindings.end(), [&](const JsBinding& b){ return b.name == tokens[index].text; });
-            if (found != graph.scopes[scope].bindings.end()) { resolved = scope; break; }
+            auto found = std::find_if(graph.scopes[scope].bindings.begin(), graph.scopes[scope].bindings.end(), [&](std::size_t binding){ return graph.bindings[binding].name == tokens[index].text; });
+            if (found != graph.scopes[scope].bindings.end()) { resolved = *found; resolved_scope = scope; break; }
             if (!scope) break;
         }
-        graph.references.push_back({index, containing, resolved});
-        if (resolved < graph.scopes.size()) graph.references_by_binding_scope[resolved].push_back(graph.references.size() - 1);
+        graph.references.push_back({index, containing, resolved, resolved_scope});
+        if (resolved < graph.bindings.size()) graph.references_by_binding[resolved].push_back(graph.references.size() - 1);
     }
 }
 
@@ -334,13 +357,13 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         bool simple=true;std::vector<std::size_t> bindings;
         for(std::size_t i=open+1;i+1<scope.first_token;++i){if((i-open)%2==1){if(tokens[i].kind!=JsTokenKind::Identifier)simple=false;else bindings.push_back(i);}else if(tokens[i].text!=",")simple=false;}
         if(!simple||bindings.empty())continue;
-        for(const auto& local:scope.bindings){if(local.token>scope.first_token&&local.token<scope.last_token&&local.token){const std::string& previous=tokens[local.token-1].text;if(previous=="var"||previous=="let"||previous=="const")bindings.push_back(local.token);}}
+        for(const auto binding_id:scope.bindings){const auto& local=graph.bindings[binding_id];if(local.token>scope.first_token&&local.token<scope.last_token&&local.token){const std::string& previous=tokens[local.token-1].text;if(previous=="var"||previous=="let"||previous=="const")bindings.push_back(local.token);}}
         std::unordered_set<std::string> occupied,unique;
         for(std::size_t i=open+1;i+1<scope.last_token;++i)if(tokens[i].kind==JsTokenKind::Identifier)occupied.insert(tokens[i].text);
         for(auto b:bindings)if(!unique.insert(tokens[b].text).second)simple=false;
         if(!simple)continue;
         std::size_t ni=0;
-        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding_scope[si]){const auto& ref=graph.references[ri];if(tokens[ref.token].text!=original)continue;const bool shorthand=ref.token<syntax.identifier_roles.size()&&syntax.identifier_roles[ref.token]==JsIdentifierRole::ShorthandProperty;replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
+        for(auto binding:bindings){const std::string& original=tokens[binding].text;if(unsafe_names.count(original))continue;const auto identity=std::find_if(graph.bindings.begin(),graph.bindings.end(),[&](const JsBinding& candidate){return candidate.token==binding&&candidate.scope==si;});if(identity==graph.bindings.end())continue;const std::size_t binding_id=static_cast<std::size_t>(identity-graph.bindings.begin());std::string replacement;do replacement=js_short_name(ni++);while(occupied.count(replacement));if(replacement.size()>=original.size())continue;replacements.push_back({tokens[binding].begin,tokens[binding].end,replacement});for(auto ri:graph.references_by_binding[binding_id]){const auto& ref=graph.references[ri];const bool shorthand=ref.token<syntax.identifier_roles.size()&&syntax.identifier_roles[ref.token]==JsIdentifierRole::ShorthandProperty;replacements.push_back({tokens[ref.token].begin,tokens[ref.token].end,shorthand?original+":"+replacement:replacement});}occupied.insert(replacement);}
     }
     return replacements;
 }
