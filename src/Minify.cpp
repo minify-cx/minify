@@ -283,6 +283,36 @@ struct JsConcreteSyntax {
     bool balanced = true;
 };
 
+struct JsControlFlowGraph {
+    std::vector<std::vector<std::size_t>> successors;
+    std::vector<bool> abrupt;
+};
+
+JsControlFlowGraph build_js_control_flow(const std::vector<JsToken>& tokens,
+                                         const JsConcreteSyntax& syntax) {
+    JsControlFlowGraph flow;
+    flow.successors.resize(tokens.size());
+    flow.abrupt.resize(tokens.size(), false);
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        const JsStatementKind statement = token < syntax.statement_kinds.size()
+            ? syntax.statement_kinds[token] : JsStatementKind::None;
+        const bool abrupt = statement == JsStatementKind::Return ||
+                            statement == JsStatementKind::Throw ||
+                            statement == JsStatementKind::Break ||
+                            statement == JsStatementKind::Continue;
+        flow.abrupt[token] = abrupt;
+        if (!abrupt && token + 1 < tokens.size()) flow.successors[token].push_back(token + 1);
+        if ((statement == JsStatementKind::If || statement == JsStatementKind::For ||
+             statement == JsStatementKind::While || statement == JsStatementKind::Switch) &&
+            token + 1 < tokens.size() && tokens[token + 1].text == "(" &&
+            syntax.matching_token[token + 1] < tokens.size()) {
+            const std::size_t after_condition = syntax.matching_token[token + 1] + 1;
+            if (after_condition < tokens.size()) flow.successors[token].push_back(after_condition);
+        }
+    }
+    return flow;
+}
+
 bool js_precedes_block(const std::vector<JsToken>& tokens, std::size_t open) {
     if (open == 0) return true;
     const std::string_view previous = tokens[open - 1].text;
@@ -3064,6 +3094,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
         const JsSemanticFacts facts = build_js_semantic_facts(tokens);
+        [[maybe_unused]] const JsControlFlowGraph control_flow =
+            build_js_control_flow(tokens, syntax);
         if (binding_signature)
             *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
         if (effect_signature)
