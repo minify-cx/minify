@@ -995,6 +995,28 @@ std::vector<JsReplacement> plan_js_constant_folding(const std::vector<JsToken>& 
         } else if (op == "*") {
             if (right && left > 9007199254740991ULL / right) continue;
             result = left * right;
+        } else if (op == "%") {
+            if (!right) continue;
+            result = left % right;
+        } else if (op == "&" || op == "|" || op == "^") {
+            const std::uint32_t lhs = static_cast<std::uint32_t>(left);
+            const std::uint32_t rhs = static_cast<std::uint32_t>(right);
+            const std::uint32_t bits = op == "&" ? lhs & rhs : op == "|" ? lhs | rhs : lhs ^ rhs;
+            const std::int64_t signed_result = bits < 0x80000000U
+                ? static_cast<std::int64_t>(bits)
+                : static_cast<std::int64_t>(bits) - 0x100000000LL;
+            const std::string folded = std::to_string(signed_result);
+            if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)
+                replacements.push_back({tokens[i + 1].begin, tokens[i + 3].end, folded});
+            i += 4;
+            continue;
+        } else if (op == "<" || op == ">") {
+            const bool comparison = op == "<" ? left < right : left > right;
+            const std::string folded = comparison ? "!0" : "!1";
+            if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)
+                replacements.push_back({tokens[i + 1].begin, tokens[i + 3].end, folded});
+            i += 4;
+            continue;
         } else continue;
         const std::string folded = std::to_string(result);
         if (folded.size() < tokens[i + 3].end - tokens[i + 1].begin)

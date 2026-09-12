@@ -747,6 +747,8 @@ int main() {
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
     expect(minify::javascript("const n=(200+30);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=(230)","aggressive exact integer constant folding");
+    expect(minify::javascript("const a=(100%7);const b=(255&15);const c=(8|3);const d=(7^3);const e=(1<2);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"const a=(2);const b=(15);const c=(11);const d=(4);const e=(!0)","aggressive exact integer operator folding");
     expect(minify::javascript("const n=(9007199254740991+1);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=(9007199254740991+1)","aggressive unsafe integer fold exclusion");
     expect(minify::javascript("const n=true?123:456;const s=false?'a':'b';",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
