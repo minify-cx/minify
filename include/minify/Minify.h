@@ -43,6 +43,10 @@ bool javascript_binding_signature(const std::string& input, std::string& signatu
                                   std::string& error);
 bool javascript_effect_signature(const std::string& input, std::string& signature,
                                  std::string& error);
+// Returns a deterministic source-positioned semantic inventory. Node IDs are
+// stable for a given non-trivia token stream and independent of whitespace.
+bool javascript_ir_signature(const std::string& input, std::string& signature,
+                             std::string& error);
 bool jsx(const std::string& input, std::string& output, std::string& error);
 bool jsx(const std::string& input, std::string& output, std::string& error,
          const Options& options);

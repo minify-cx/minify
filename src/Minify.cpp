@@ -1028,6 +1028,22 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
     return signature;
 }
 
+std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
+                                  const JsConcreteSyntax& syntax) {
+    std::string signature;
+    signature.reserve(syntax.nodes.size() * 12);
+    for (std::size_t id = 0; id < syntax.nodes.size(); ++id) {
+        const JsSyntaxNode& node = syntax.nodes[id];
+        signature += "N" + std::to_string(id) + ":" +
+            std::to_string(static_cast<unsigned>(node.kind)) + ":" +
+            std::to_string(node.first_token) + "-" +
+            std::to_string(node.last_token) + ":P" +
+            std::to_string(node.parent) + ";";
+    }
+    signature += "T" + std::to_string(tokens.size()) + ";";
+    return signature;
+}
+
 std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
     const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
     std::vector<std::unordered_set<std::string_view>> barriers(graph.scopes.size());
@@ -2788,7 +2804,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
                               std::string* binding_signature = nullptr,
-                              std::string* effect_signature = nullptr) {
+                              std::string* effect_signature = nullptr,
+                              std::string* ir_signature = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -3239,6 +3256,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
         if (effect_signature)
             *effect_signature = build_js_effect_signature(tokens, scopes, facts);
+        if (ir_signature)
+            *ir_signature = build_js_ir_signature(tokens, syntax);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
@@ -3331,6 +3350,14 @@ bool javascript_effect_signature(const std::string& input, std::string& signatur
     signature.clear();
     return minify_javascript(input, ignored, error, false, true, false, false,
                              nullptr, nullptr, nullptr, &signature);
+}
+
+bool javascript_ir_signature(const std::string& input, std::string& signature,
+                             std::string& error) {
+    std::string ignored;
+    signature.clear();
+    return minify_javascript(input, ignored, error, false, true, false, false,
+                             nullptr, nullptr, nullptr, nullptr, &signature);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
