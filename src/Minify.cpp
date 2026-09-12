@@ -316,6 +316,22 @@ struct JsScopeGraph {
     std::vector<std::vector<std::size_t>> references_by_binding;
 };
 
+bool js_function_is_declaration(const std::vector<JsToken>& tokens, std::size_t function) {
+    if (function == 0) return true;
+    std::size_t previous = function - 1;
+    if (tokens[previous].text == "async" && previous) --previous;
+    const std::string& context = tokens[previous].text;
+    if (context == "{" || context == "}" || context == ";" ||
+        context == "export" || context == "default") return true;
+    static const std::unordered_set<std::string> expression_prefixes = {
+        "return","throw","case","delete","void","typeof","new","yield","await"
+    };
+    // Two ordinary identifiers cannot be adjacent in an expression. When a
+    // function follows one, ASI has started a function declaration statement.
+    return tokens[previous].kind == JsTokenKind::Identifier &&
+           expression_prefixes.count(context) == 0;
+}
+
 JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     const bool module = std::any_of(tokens.begin(), tokens.end(), [](const JsToken& token) {
         return token.text == "import" || token.text == "export";
@@ -398,6 +414,18 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                         else if (parameter == "," && nested == 0) binding_position = true;
                     }
                 }
+                if (!arrow_body) {
+                    std::size_t function_token = open;
+                    while (function_token && open - function_token < 5 &&
+                           tokens[function_token].text != "function") --function_token;
+                    if (tokens[function_token].text == "function" &&
+                        !js_function_is_declaration(tokens, function_token)) {
+                        std::size_t name = function_token + 1;
+                        if (name < open && tokens[name].text == "*") ++name;
+                        if (name < open && tokens[name].kind == JsTokenKind::Identifier)
+                            add_binding(scopes.back(), name, JsBindingKind::Function);
+                    }
+                }
             } else if (pending == JsScopeKind::Catch && index && tokens[index - 1].text == ")") {
                 std::size_t depth = 1, open = index - 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
@@ -417,7 +445,8 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             JsBindingKind kind = JsBindingKind::Unknown;
             if (previous == "var") kind = JsBindingKind::Var;
             else if (previous == "let" || previous == "const") kind = JsBindingKind::Lexical;
-            else if (previous == "function") kind = JsBindingKind::Function;
+            else if (previous == "function" && js_function_is_declaration(tokens, index - 1))
+                kind = JsBindingKind::Function;
             else if (previous == "class") kind = JsBindingKind::Class;
             else if (previous == "catch") kind = JsBindingKind::Catch;
             if (kind != JsBindingKind::Unknown) {
@@ -607,6 +636,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
+                                   (candidate.kind == JsBindingKind::Function &&
+                                    graph.scopes[candidate.scope].kind == JsScopeKind::Function) ||
                                    candidate.kind == JsBindingKind::Catch;
             const bool captured = std::any_of(graph.references_by_binding[binding].begin(),
                 graph.references_by_binding[binding].end(), [&](std::size_t reference) {
