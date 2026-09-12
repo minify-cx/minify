@@ -1057,7 +1057,8 @@ std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
 
 std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
                                       const JsScopeGraph& graph,
-                                      const JsSemanticFacts& facts) {
+                                      const JsSemanticFacts& facts,
+                                      const JsConcreteSyntax& syntax) {
     std::string signature;
     for (std::size_t token = 0; token < tokens.size(); ++token) {
         const std::size_t reference = token < graph.reference_at_token.size()
@@ -1098,6 +1099,15 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
             signature += "Z" + std::to_string(static_cast<unsigned>(facts.conversions[token])) + ";";
         if (facts.property_effects[token] != JsPropertyEffectKind::None)
             signature += "Y" + std::to_string(static_cast<unsigned>(facts.property_effects[token])) + ";";
+        const JsStatementKind statement = syntax.statement_kinds[token];
+        if ((statement == JsStatementKind::If || statement == JsStatementKind::While ||
+             statement == JsStatementKind::For) && token + 2 < tokens.size() &&
+            tokens[token + 1].text == "(") {
+            const JsTruthiness condition = facts.truthiness[token + 2];
+            signature += "B" + std::to_string(token + 2) + ":" +
+                (condition == JsTruthiness::Truthy ? "T" :
+                 condition == JsTruthiness::Falsy ? "F" : "?") + ";";
+        }
     }
     return signature;
 }
@@ -3377,7 +3387,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         if (binding_signature)
             *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
         if (effect_signature)
-            *effect_signature = build_js_effect_signature(tokens, scopes, facts);
+            *effect_signature = build_js_effect_signature(tokens, scopes, facts, syntax);
         if (ir_signature)
             *ir_signature = build_js_ir_signature(tokens, syntax, scopes);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
