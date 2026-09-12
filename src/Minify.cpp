@@ -136,7 +136,8 @@ struct JsRewriteResult {
     bool smaller = false;
 };
 
-enum class JsValueKind { Unknown, Null, Boolean, Number, String };
+enum class JsValueKind { Unknown, Undefined, Null, Boolean, Number, BigInt, String };
+enum class JsTruthiness { Unknown, Falsy, Truthy };
 enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
 enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
 struct JsEffectSummary {
@@ -154,6 +155,7 @@ struct JsSemanticFacts {
     std::vector<JsEffectKind> effects;
     std::vector<JsCompletionKind> completions;
     std::vector<JsEffectSummary> effect_summaries;
+    std::vector<JsTruthiness> truthiness;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -162,12 +164,22 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.effects.resize(tokens.size(), JsEffectKind::MayThrow);
     facts.completions.resize(tokens.size(), JsCompletionKind::Normal);
     facts.effect_summaries.resize(tokens.size());
+    facts.truthiness.resize(tokens.size(), JsTruthiness::Unknown);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
-        if (token.kind == JsTokenKind::Number) facts.values[index] = JsValueKind::Number;
+        if (token.kind == JsTokenKind::Number)
+            facts.values[index] = !token.text.empty() && token.text.back() == 'n'
+                ? JsValueKind::BigInt : JsValueKind::Number;
         else if (token.kind == JsTokenKind::String) facts.values[index] = JsValueKind::String;
         else if (token.text == "true" || token.text == "false") facts.values[index] = JsValueKind::Boolean;
         else if (token.text == "null") facts.values[index] = JsValueKind::Null;
+
+        if (token.text == "false" || token.text == "null" ||
+            token.text == "0" || token.text == "0n" || token.text == "''" || token.text == "\"\"")
+            facts.truthiness[index] = JsTruthiness::Falsy;
+        else if (token.text == "true" || token.kind == JsTokenKind::Regex ||
+                 token.kind == JsTokenKind::String || token.kind == JsTokenKind::Template)
+            facts.truthiness[index] = JsTruthiness::Truthy;
 
         if (facts.values[index] != JsValueKind::Unknown || token.kind == JsTokenKind::Regex ||
             token.kind == JsTokenKind::Template)
