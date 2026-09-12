@@ -764,6 +764,8 @@ int main() {
     expect(original_signature.find("E")!=std::string::npos,"IR expression inventory");
     expect(minify::javascript_ir_signature("new Box(obj.value,import('x'))",original_signature,err),err);
     expect(original_signature.find("A")!=std::string::npos&&original_signature.find("P")!=std::string::npos,"IR invocation and property inventory");
+    expect(minify::javascript_ir_signature("label:try{if(x)throw y;switch(z){case 1:break}}catch(e){}finally{}",original_signature,err),err);
+    expect(original_signature.find("S")!=std::string::npos,"IR statement inventory");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

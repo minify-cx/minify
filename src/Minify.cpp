@@ -1055,6 +1055,10 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
     for (std::size_t id = 0; id < syntax.nodes.size(); ++id)
         if (syntax.nodes[id].role == JsGroupRole::Arguments)
             signature += "A" + std::to_string(id) + ";";
+    for (std::size_t token = 0; token < tokens.size(); ++token)
+        if (syntax.statement_kinds[token] != JsStatementKind::None)
+            signature += "S" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(syntax.statement_kinds[token])) + ";";
     return signature;
 }
 
