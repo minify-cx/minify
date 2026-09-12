@@ -684,5 +684,22 @@ int main() {
     eq(structured, conservative, "inactive structured policy changed output");
     eq(aggressive, conservative, "inactive aggressive policy changed output");
 
+    const std::string jsx_policy_source =
+        "const  view = <Panel value={ left +  right }>"
+        "  exact  text <Child>{/*gone*/ nested + 1}</Child></Panel>;";
+    expect(minify::jsx(jsx_policy_source, conservative, err,
+                       {minify::OptimizationLevel::Conservative}), err);
+    expect(minify::jsx(jsx_policy_source, structured, err,
+                       {minify::OptimizationLevel::Structured}), err);
+    expect(minify::jsx(jsx_policy_source, aggressive, err,
+                       {minify::OptimizationLevel::Aggressive}), err);
+    eq(structured, conservative, "inactive structured JSX policy changed output");
+    eq(aggressive, conservative, "inactive aggressive JSX policy changed output");
+    expect(conservative.find("  exact  text ") != std::string::npos,
+           "JSX child text changed across policy regions");
+    expect(conservative.find("value={left+right}") != std::string::npos &&
+           conservative.find("{nested+1}") != std::string::npos,
+           "JSX JavaScript regions were not conservatively minified");
+
     std::cout << "Standalone minifier smoke test passed\n";
 }

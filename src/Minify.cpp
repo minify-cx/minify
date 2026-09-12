@@ -1880,7 +1880,8 @@ static bool find_jsx_expression_end(const std::string& input, std::size_t start,
     return false;
 }
 
-bool jsx(const std::string& input, std::string& output, std::string& error) {
+static bool minify_jsx(const std::string& input, std::string& output,
+                       std::string& error, bool collect_tokens) {
     output.clear();
     output.reserve(input.size());
 
@@ -1889,7 +1890,8 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
     auto flush_js = [&](std::size_t end) -> bool {
         if (end <= js_start) return true;
         std::string part, e;
-        if (!minify_javascript(input.substr(js_start, end - js_start), part, e, true)) {
+        if (!minify_javascript(input.substr(js_start, end - js_start), part, e,
+                               true, collect_tokens)) {
             error = e;
             return false;
         }
@@ -2077,7 +2079,8 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
                                 error = scan_error; output.clear(); return false;
                             }
                             std::string expr, e;
-                            if (!jsx(input.substr(k + 1, qpos - k - 2), expr, e)) {
+                            if (!minify_jsx(input.substr(k + 1, qpos - k - 2), expr, e,
+                                            collect_tokens)) {
                                 error = e; output.clear(); return false;
                             }
                             output.push_back('{'); output += expr; output.push_back('}');
@@ -2107,7 +2110,8 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
                     error = scan_error; output.clear(); return false;
                 }
                 std::string expr, e;
-                if (!jsx(input.substr(p + 1, j - p - 2), expr, e)) {
+                if (!minify_jsx(input.substr(p + 1, j - p - 2), expr, e,
+                                collect_tokens)) {
                     error = e; output.clear(); return false;
                 }
                 output.push_back('{'); output += expr; output.push_back('}');
@@ -2164,10 +2168,14 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
     return true;
 }
 
+bool jsx(const std::string& input, std::string& output, std::string& error) {
+    return minify_jsx(input, output, error, false);
+}
+
 bool jsx(const std::string& input, std::string& output, std::string& error,
          const Options& options) {
-    (void)options;
-    return jsx(input, output, error);
+    return minify_jsx(input, output, error,
+                      options.optimization != OptimizationLevel::Conservative);
 }
 
 bool format_for_extension(const std::string& extension, Format& format) {
