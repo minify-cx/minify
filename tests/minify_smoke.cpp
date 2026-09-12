@@ -738,6 +738,8 @@ int main() {
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
+    expect(minify::javascript("function keep(longName){return function(){return eval('longName')}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keep(longName){return function(){return eval('longName')}}","structured descendant dynamic lookup barrier");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

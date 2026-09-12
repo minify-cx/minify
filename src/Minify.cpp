@@ -511,6 +511,7 @@ struct JsReference {
 struct JsScope {
     JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
     bool dynamic_lookup = false; std::vector<std::size_t> bindings;
+    bool descendant_dynamic_lookup = false;
 };
 struct JsScopeGraph {
     std::vector<JsScope> scopes;
@@ -714,6 +715,13 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
         graph.containing_function[scope] = graph.scopes[scope].kind == JsScopeKind::Function
             ? scope : graph.containing_function[parent];
     }
+    for (std::size_t scope = 0; scope < graph.scopes.size(); ++scope) {
+        if (!graph.scopes[scope].dynamic_lookup) continue;
+        for (std::size_t ancestor = scope;; ancestor = graph.scopes[ancestor].parent) {
+            graph.scopes[ancestor].descendant_dynamic_lookup = true;
+            if (!ancestor) break;
+        }
+    }
     return graph;
 }
 
@@ -858,7 +866,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         if (function.kind != JsScopeKind::Function ||
             function.last_token > tokens.size() || !function.first_token) continue;
 
-        bool unsafe = unit_dynamic[unit];
+        bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
             if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
