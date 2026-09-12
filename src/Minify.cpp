@@ -1807,8 +1807,14 @@ static bool minify_javascript(const std::string& input, std::string& output,
             continue;
         }
 
+        std::size_t jsx_close = i + 1;
+        while (preserve_jsx_boundaries && jsx_close < input.size() && ws(input[jsx_close]))
+            ++jsx_close;
+        const bool jsx_self_close = preserve_jsx_boundaries &&
+                                    jsx_close < input.size() && input[jsx_close] == '>';
         if (c == '/' && can_start_regex && i + 1 < input.size() &&
-            (output.empty() || output.back() != '<')) {
+            (output.empty() || output.back() != '<') &&
+            !jsx_self_close) {
             const std::size_t begin = i;
             emit_pending(c);
             output.push_back(input[i++]);

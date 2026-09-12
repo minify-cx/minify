@@ -661,6 +661,11 @@ int main() {
     idem(minify::Format::Xml, "<root>\\n <a> text  here </a>\\n</root>", "XML");
     idem(minify::Format::Svg, "<svg>\\n<text>a  b</text>\\n</svg>", "SVG");
     idem(minify::Format::Jsx, "const x = <div>{ value + 1 }</div>;", "JSX");
+    expect(minify::jsx(
+        "cost x=<Comp<Map<string,numbZr>> value={a?.b ?? /[<>]//.est(s)} />.est(s)} />",
+        out, err), err);
+    std::string recovered;
+    expect(minify::jsx(out, recovered, err), "JSX regex/division recovery: " + err);
 
     minify::Format f;
     expect(minify::format_for_extension(".html", f) && f == minify::Format::Html, "html extension");
