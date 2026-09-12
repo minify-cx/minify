@@ -134,14 +134,17 @@ fs::path minified_path(const fs::path& input) {
 void help() {
     std::cout
         << "minify - conservative multi-format minifier\n\n"
-        << "Usage: minify [--in-place|-i] <files...>\n\n"
+        << "Usage: minify [--in-place|-i] [--structured] [--structured-jsx-expressions] <files...>\n\n"
         << "By default foo.js is written to foo.min.js.\n"
-        << "Use --in-place (or -i) to overwrite the source file.\n";
+        << "Use --in-place (or -i) to overwrite the source file.\n"
+        << "Use --structured to enable proven-safe JavaScript binding renames.\n"
+        << "Use --structured-jsx-expressions to apply them inside parsed JSX expressions.\n";
 }
 }
 
 int main(int argc, char** argv) {
     bool in_place = false;
+    minify::Options options;
     std::vector<fs::path> files;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -151,6 +154,12 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (arg == "--in-place" || arg == "-i") { in_place = true; continue; }
+        if (arg == "--structured") { options.optimization = minify::OptimizationLevel::Structured; continue; }
+        if (arg == "--structured-jsx-expressions") {
+            options.optimization = minify::OptimizationLevel::Structured;
+            options.structured_jsx_expressions = true;
+            continue;
+        }
         if (!arg.empty() && arg[0] == '-') {
             std::cerr << "minify: unknown option '" << arg << "'\n";
             return 2;
@@ -177,7 +186,7 @@ int main(int argc, char** argv) {
             failed = true; continue;
         }
         std::string output, error;
-        if (!minify::run(format, source, output, error)) {
+        if (!minify::run(format, source, output, error, options)) {
             std::cerr << "minify: " << input.string() << ": " << error << "\n";
             failed = true; continue;
         }
