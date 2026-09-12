@@ -1094,6 +1094,38 @@ std::vector<JsReplacement> plan_js_unreachable_debuggers(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_return_conditionals(const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t i = 0; i + 9 < tokens.size(); ++i) {
+        if (tokens[i].text != "if" || tokens[i + 1].text != "(" ||
+            tokens[i + 3].text != ")" || tokens[i + 4].text != "return" ||
+            tokens[i + 6].text != ";") continue;
+        const bool with_else = tokens[i + 7].text == "else";
+        const std::size_t second_return = with_else ? i + 8 : i + 7;
+        if (second_return + 2 >= tokens.size() ||
+            tokens[second_return].text != "return" ||
+            tokens[second_return + 2].text != ";") continue;
+        const auto simple_value = [](const JsToken& token) {
+            return token.kind == JsTokenKind::Identifier ||
+                   token.kind == JsTokenKind::Number || token.kind == JsTokenKind::String;
+        };
+        if (!simple_value(tokens[i + 2]) || !simple_value(tokens[i + 5]) ||
+            !simple_value(tokens[second_return + 1])) continue;
+        std::string compressed = "return ";
+        compressed.append(tokens[i + 2].text);
+        compressed.push_back('?');
+        compressed.append(tokens[i + 5].text);
+        compressed.push_back(':');
+        compressed.append(tokens[second_return + 1].text);
+        compressed.push_back(';');
+        if (compressed.size() < tokens[second_return + 2].end - tokens[i].begin)
+            replacements.push_back({tokens[i].begin, tokens[second_return + 2].end,
+                                    std::move(compressed)});
+        i = second_return + 2;
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_compound_assignments(const std::vector<JsToken>& tokens,
                                                          const JsScopeGraph& graph) {
     std::vector<JsReplacement> replacements;
@@ -2621,7 +2653,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     append(plan_js_constant_conditionals(tokens, facts));
                     append(plan_js_constant_logical_expressions(tokens, facts));
                 }
-                if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens, facts));
+                if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) {
+                    append(plan_js_unreachable_debuggers(tokens, facts));
+                    append(plan_js_return_conditionals(tokens));
+                }
                 if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
                 auto unused_vars = pass_enabled(JavaScriptOptimizationPass::UnusedBinding)
                     ? plan_js_unused_local_vars(tokens, scopes, facts)

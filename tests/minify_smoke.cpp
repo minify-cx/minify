@@ -761,6 +761,10 @@ int main() {
     eq(aggressive,"const a=longValue;const b=otherValue;const c=!1;const d=!0","aggressive constant logical simplification");
     expect(minify::javascript("function f(){return 7;debugger;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return 7}","aggressive unreachable debugger elimination");
+    expect(minify::javascript("function choose(conditionValue){if(conditionValue)return firstValue;return secondValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function choose($){return $?firstValue:secondValue}","aggressive return conditional compression");
+    expect(minify::javascript("function choose(conditionValue){if(conditionValue)return 1;else return 2;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
+    eq(aggressive,"function choose($){return $?1:2}","aggressive else-return conditional compression");
     expect(minify::javascript("function add(longValue){longValue=longValue+2;return longValue;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function add($){$+=2;return $}","aggressive local compound assignment compression");
     expect(minify::javascript("function f(){var first;var second;return 1;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
