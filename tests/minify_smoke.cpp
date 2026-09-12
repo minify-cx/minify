@@ -725,7 +725,9 @@ int main() {
     expect(minify::javascript("const total=longValue=>({longValue,externalValue});",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const total=$=>({longValue:$,externalValue})","structured concise arrow shorthand preservation");
     expect(minify::javascript("const total=longValue=>()=>longValue;",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"const total=longValue=>()=>longValue","structured concise arrow capture exclusion");
+    eq(structured,"const total=$=>()=>$","structured concise arrow capture mangling");
+    expect(minify::javascript("function choose(async){return async?left:right}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function choose($){return $?left:right}","structured contextual async reference mangling");
     expect(minify::javascript("function total(...longValues){return longValues.length;}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function total(...$){return $.length}","structured rest parameter binding");
     expect(minify::javascript("function total({longValue}){return longValue+longValue;}",structured,err,{minify::OptimizationLevel::Structured}),err);

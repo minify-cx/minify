@@ -893,6 +893,53 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             }
         }
     }
+    // Concise arrows do not have a brace at which the main scope stack can
+    // open a function. Model the supported single-parameter form explicitly,
+    // from the inside out, so captures and shadowing use the normal resolver.
+    for (std::size_t arrow = tokens.size(); arrow-- > 1;) {
+        if (tokens[arrow].text != ">" || tokens[arrow - 1].text != "=" ||
+            arrow + 1 >= tokens.size() || tokens[arrow + 1].text == "{") continue;
+        std::size_t parameter = tokens.size();
+        bool supported_parameters = false;
+        if (arrow >= 2 && tokens[arrow - 2].kind == JsTokenKind::Identifier)
+            parameter = arrow - 2, supported_parameters = true;
+        else if (arrow >= 4 && tokens[arrow - 2].text == ")" &&
+                 tokens[arrow - 3].kind == JsTokenKind::Identifier &&
+                 tokens[arrow - 4].text == "(")
+            parameter = arrow - 3, supported_parameters = true;
+        else if (arrow >= 3 && tokens[arrow - 2].text == ")" &&
+                 tokens[arrow - 3].text == "(")
+            supported_parameters = true;
+        if (!supported_parameters) continue;
+        const std::size_t parent = graph.scope_at_token[arrow];
+        const std::size_t begin = arrow + 1;
+        std::size_t end = tokens.size();
+        unsigned parens = 0, brackets = 0, braces = 0;
+        for (std::size_t token = begin; token < tokens.size(); ++token) {
+            const std::string_view text = tokens[token].text;
+            if (text == "(") ++parens;
+            else if (text == ")") { if (!parens) { end = token; break; } --parens; }
+            else if (text == "[") ++brackets;
+            else if (text == "]") { if (!brackets) { end = token; break; } --brackets; }
+            else if (text == "{") ++braces;
+            else if (text == "}") { if (!braces) { end = token; break; } --braces; }
+            else if (!parens && !brackets && !braces && (text == "," || text == ";")) {
+                end = token; break;
+            }
+        }
+        graph.scopes.push_back({JsScopeKind::Function, parent, begin, end, false, {}});
+        const std::size_t scope = graph.scopes.size() - 1;
+        if (parameter < tokens.size()) graph.scope_at_token[parameter] = scope;
+        graph.scope_at_token[arrow - 1] = scope;
+        graph.scope_at_token[arrow] = scope;
+        for (std::size_t token = begin; token < end; ++token)
+            if (graph.scope_at_token[token] == parent) graph.scope_at_token[token] = scope;
+        for (std::size_t nested = 1; nested + 1 < graph.scopes.size(); ++nested)
+            if (graph.scopes[nested].parent == parent &&
+                graph.scopes[nested].first_token >= begin && graph.scopes[nested].last_token <= end)
+                graph.scopes[nested].parent = scope;
+        if (parameter < tokens.size()) add_binding(scope, parameter, JsBindingKind::Parameter);
+    }
     // Discover every simple declarator, not only the first name after the
     // declaration keyword. Initializer commas inside delimiter groups are
     // skipped; destructuring patterns remain deliberately outside this pass.
@@ -967,7 +1014,7 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                 syntax.identifier_roles[token] = JsIdentifierRole::Binding;
     }
     static const std::unordered_set<std::string_view> non_references = {
-        "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await","async"
+        "break","case","catch","class","const","continue","debugger","default","delete","do","else","export","extends","false","finally","for","function","if","import","in","instanceof","let","new","null","return","static","super","switch","this","throw","true","try","typeof","var","void","while","with","yield","await"
     };
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         if (tokens[index].kind != JsTokenKind::Identifier || declarations.count(index) || non_references.count(tokens[index].text)) continue;
@@ -1473,6 +1520,36 @@ JsNameAlphabet build_js_frequency_alphabet(const std::vector<JsToken>& tokens,
     return {ranked(default_first), ranked(default_continuation)};
 }
 
+bool js_identifier_is_shorthand(const std::vector<JsToken>& tokens,
+                                const JsConcreteSyntax& syntax,
+                                std::size_t token) {
+    if (token >= syntax.identifier_roles.size()) return false;
+    if (syntax.identifier_roles[token] == JsIdentifierRole::ShorthandProperty) return true;
+    if (!token || token + 1 >= tokens.size() ||
+        (tokens[token - 1].text != "{" && tokens[token - 1].text != ",") ||
+        (tokens[token + 1].text != "}" && tokens[token + 1].text != ",")) return false;
+    unsigned parens = 0, brackets = 0, braces = 0;
+    for (std::size_t cursor = token; cursor-- > 0;) {
+        const std::string_view text = tokens[cursor].text;
+        if (text == ")") ++parens;
+        else if (text == "]") ++brackets;
+        else if (text == "}") ++braces;
+        else if (text == "(") {
+            if (parens) --parens;
+            else if (!brackets && !braces) return false;
+        } else if (text == "[") {
+            if (brackets) --brackets;
+            else if (!parens && !braces) return false;
+        } else if (text == "{") {
+            if (braces) --braces;
+            else if (!parens && !brackets)
+                return tokens[cursor].brace_kind != JsBraceKind::Block ||
+                       (cursor && tokens[cursor - 1].text == "(");
+        }
+    }
+    return false;
+}
+
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
@@ -1523,10 +1600,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
-            const bool concise_arrow = tokens[i].text == "=" &&
-                i + 1 < function.last_token && tokens[i + 1].text == ">" &&
-                (i + 2 >= function.last_token || tokens[i + 2].text != "{");
-            if (tokens[i].text == "arguments" || tokens[i].text == "class" || concise_arrow)
+            if (tokens[i].text == "arguments" || tokens[i].text == "class")
                 unsafe = true;
             if (tokens[i].text == "catch" && i + 2 < function.last_token &&
                 tokens[i + 1].text == "(" &&
@@ -1623,8 +1697,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             std::size_t ordinary = 1, shorthand = 0;
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
                 const JsReference& reference = graph.references[reference_id];
-                if (reference.token < syntax.identifier_roles.size() &&
-                    syntax.identifier_roles[reference.token] == JsIdentifierRole::ShorthandProperty)
+                if (js_identifier_is_shorthand(tokens, syntax, reference.token))
                     ++shorthand;
                 else
                     ++ordinary;
@@ -1643,8 +1716,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             }
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
                 const JsReference& reference = graph.references[reference_id];
-                const bool shorthand = reference.token < syntax.identifier_roles.size() &&
-                    syntax.identifier_roles[reference.token] == JsIdentifierRole::ShorthandProperty;
+                const bool shorthand = js_identifier_is_shorthand(tokens, syntax, reference.token);
                 replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
                     shorthand ? std::string(binding.name) + ":" + replacement : replacement});
             }
@@ -1655,7 +1727,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     return replacements;
 }
 
-std::vector<JsReplacement> plan_js_concise_arrow_renaming(
+[[maybe_unused]] std::vector<JsReplacement> plan_js_concise_arrow_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string_view> reserved = {
@@ -1770,8 +1842,7 @@ std::vector<JsReplacement> plan_js_single_arrow_parentheses(
         if (tokens[open].text != "(" ||
             tokens[open + 1].kind != JsTokenKind::Identifier ||
             tokens[open + 2].text != ")" || tokens[open + 3].text != "=" ||
-            tokens[open + 4].text != ">" || open + 5 >= tokens.size() ||
-            tokens[open + 5].text != "{") continue;
+            tokens[open + 4].text != ">") continue;
         replacements.push_back({tokens[open].begin, tokens[open].end, ""});
         replacements.push_back({tokens[open + 2].begin, tokens[open + 2].end, ""});
         open += 4;
@@ -3655,8 +3726,6 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 ? plan_safe_js_parameter_renaming(tokens, syntax, scopes)
                 : std::vector<JsReplacement>{};
             if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
-                auto concise = plan_js_concise_arrow_renaming(tokens, syntax);
-                replacements.insert(replacements.end(), concise.begin(), concise.end());
                 auto arrow_parentheses = plan_js_single_arrow_parentheses(tokens);
                 replacements.insert(replacements.end(), arrow_parentheses.begin(),
                                     arrow_parentheses.end());
