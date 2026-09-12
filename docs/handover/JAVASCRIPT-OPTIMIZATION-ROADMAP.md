@@ -222,3 +222,7 @@ manager path appeared roughly 60.4 million times and accounted for 4.1% of all
 sampled time. Checkpoint 11 replaced it with a nullable recorder pointer.
 Conservative mode now passes null and performs no inventory allocation; an
 explicit structured or aggressive policy supplies the recorder.
+
+The ordered plan for completing the semantic IR, path-sensitive effect
+analysis, exceptional CFG and broad dead-code elimination is maintained in
+`docs/handover/JAVASCRIPT-OPTIMIZER-CHECKPOINTS-31-70.md`.
