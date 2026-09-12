@@ -39,6 +39,8 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
 // Unresolved names and property-like identifiers remain spelling-sensitive.
 bool javascript_binding_signature(const std::string& input, std::string& signature,
                                   std::string& error);
+bool javascript_effect_signature(const std::string& input, std::string& signature,
+                                 std::string& error);
 bool jsx(const std::string& input, std::string& output, std::string& error);
 bool jsx(const std::string& input, std::string& output, std::string& error,
          const Options& options);

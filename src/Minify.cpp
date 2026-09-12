@@ -944,6 +944,30 @@ std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
     return signature;
 }
 
+std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
+                                      const JsScopeGraph& graph,
+                                      const JsSemanticFacts& facts) {
+    std::string signature;
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        const std::size_t reference = token < graph.reference_at_token.size()
+            ? graph.reference_at_token[token] : tokens.size();
+        if (reference < graph.references.size()) {
+            const JsReference& occurrence = graph.references[reference];
+            if (occurrence.access != JsReferenceAccess::Read) signature += "W";
+            else signature += "R";
+            signature += occurrence.binding < graph.bindings.size()
+                ? std::to_string(occurrence.binding) : std::string(tokens[token].text);
+            signature += ";";
+        }
+        if (token < facts.invocations.size() &&
+            facts.invocations[token] != JsInvocationKind::None)
+            signature += facts.invocations[token] == JsInvocationKind::Construct ? "N;" : "C;";
+        if (tokens[token].text == "." || tokens[token].text == "[") signature += "P;";
+        if (tokens[token].text == "throw") signature += "T;";
+    }
+    return signature;
+}
+
 std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
     const std::vector<JsToken>& tokens, const JsScopeGraph& graph) {
     std::vector<std::unordered_set<std::string_view>> barriers(graph.scopes.size());
@@ -2592,7 +2616,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               bool aggressive_rewrite = false,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
-                              std::string* binding_signature = nullptr) {
+                              std::string* binding_signature = nullptr,
+                              std::string* effect_signature = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -3038,9 +3063,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
+        const JsSemanticFacts facts = build_js_semantic_facts(tokens);
         if (binding_signature)
             *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
-        const JsSemanticFacts facts = build_js_semantic_facts(tokens);
+        if (effect_signature)
+            *effect_signature = build_js_effect_signature(tokens, scopes, facts);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
@@ -3118,6 +3145,14 @@ bool javascript_binding_signature(const std::string& input, std::string& signatu
     signature.clear();
     return minify_javascript(input, ignored, error, false, true, false, false,
                              nullptr, nullptr, &signature);
+}
+
+bool javascript_effect_signature(const std::string& input, std::string& signature,
+                                 std::string& error) {
+    std::string ignored;
+    signature.clear();
+    return minify_javascript(input, ignored, error, false, true, false, false,
+                             nullptr, nullptr, nullptr, &signature);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,

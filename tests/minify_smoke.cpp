@@ -750,6 +750,9 @@ int main() {
     eq(renamed_signature,original_signature,"binding signature accepts consistent alpha renaming");
     expect(minify::javascript_binding_signature("function total($){return otherValue+externalValue}",renamed_signature,err),err);
     expect(renamed_signature != original_signature,"binding signature rejected inconsistent alpha renaming");
+    expect(minify::javascript_effect_signature("function total(longValue){return call(longValue)}",original_signature,err),err);
+    expect(minify::javascript_effect_signature("function total($){return call($)}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"effect signature accepts alpha renaming");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
