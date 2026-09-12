@@ -1149,6 +1149,9 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
                 std::to_string(static_cast<unsigned>(syntax.function_contexts[token])) + ";";
         if (syntax.parameter_initializer_tokens[token])
             signature += "I" + std::to_string(token) + ";";
+        if (syntax.binding_patterns[token] != JsBindingPatternKind::None)
+            signature += "H" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(syntax.binding_patterns[token])) + ";";
     }
     for (std::size_t token = 0; token < tokens.size(); ++token)
         if (syntax.module_roles[token] != JsModuleRole::None)
