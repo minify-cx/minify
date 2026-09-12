@@ -1059,6 +1059,13 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
         if (syntax.statement_kinds[token] != JsStatementKind::None)
             signature += "S" + std::to_string(token) + ":" +
                 std::to_string(static_cast<unsigned>(syntax.statement_kinds[token])) + ";";
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        if (syntax.function_contexts[token] != JsFunctionContext::None)
+            signature += "F" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(syntax.function_contexts[token])) + ";";
+        if (syntax.parameter_initializer_tokens[token])
+            signature += "I" + std::to_string(token) + ";";
+    }
     return signature;
 }
 
