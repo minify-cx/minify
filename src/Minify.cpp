@@ -613,6 +613,7 @@ struct JsScopeGraph {
     std::vector<std::vector<std::size_t>> references_by_binding;
     std::vector<std::vector<std::size_t>> scope_children;
     std::vector<std::size_t> containing_function;
+    std::vector<bool> control_flow_complex;
     std::vector<std::size_t> reference_at_token;
     std::vector<std::size_t> unresolved_references;
     std::vector<std::vector<std::size_t>> captures_by_function;
@@ -812,6 +813,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     }
     graph.scope_children.resize(graph.scopes.size());
     graph.containing_function.resize(graph.scopes.size(), 0);
+    graph.control_flow_complex.resize(graph.scopes.size(), false);
     for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
         const std::size_t parent = graph.scopes[scope].parent;
         graph.scope_children[parent].push_back(scope);
@@ -824,6 +826,17 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             graph.scopes[ancestor].descendant_dynamic_lookup = true;
             if (!ancestor) break;
         }
+    }
+    static const std::unordered_set<std::string_view> complex_flow_words = {
+        "if", "else", "for", "while", "do", "switch", "case", "try", "catch",
+        "finally", "throw", "break", "continue", "yield", "await", "function", "class"
+    };
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        const std::size_t function = graph.containing_function[graph.scope_at_token[token]];
+        if (function && (complex_flow_words.count(tokens[token].text) ||
+                         (tokens[token].text == "=" && token + 1 < tokens.size() &&
+                          tokens[token + 1].text == ">")))
+            graph.control_flow_complex[function] = true;
     }
     return graph;
 }
@@ -1047,7 +1060,31 @@ struct JsBindingInterferenceGraph {
             (b.kind == JsBindingKind::Lexical || b.kind == JsBindingKind::Catch);
         const bool disjoint = a_scope.last_token <= b_scope.first_token ||
                               b_scope.last_token <= a_scope.first_token;
-        return !reusable_kinds || !disjoint;
+        if (reusable_kinds && disjoint) return false;
+        const std::size_t function = graph.containing_function[a.scope];
+        if (a.kind == JsBindingKind::Var && b.kind == JsBindingKind::Var && function &&
+            !graph.control_flow_complex[function] &&
+            !graph.scopes[function].dynamic_lookup &&
+            !graph.scopes[function].descendant_dynamic_lookup &&
+            !graph.references_by_binding[left].empty() &&
+            !graph.references_by_binding[right].empty()) {
+            auto live_range = [&](std::size_t binding) {
+                std::size_t begin = graph.bindings[binding].token;
+                std::size_t end = begin;
+                bool captured = false;
+                for (std::size_t reference : graph.references_by_binding[binding]) {
+                    begin = std::min(begin, graph.references[reference].token);
+                    end = std::max(end, graph.references[reference].token);
+                    captured = captured || graph.references[reference].captured;
+                }
+                return std::make_pair(captured ? 0 : begin,
+                    captured ? std::numeric_limits<std::size_t>::max() : end);
+            };
+            const auto left_live = live_range(left), right_live = live_range(right);
+            if (left_live.second < right_live.first || right_live.second < left_live.first)
+                return false;
+        }
+        return true;
     }
 };
 

@@ -738,6 +738,8 @@ int main() {
     eq(structured,"function blocks($){if($){let _=1;use(_)}else{let _=2;use(_)}}","structured disjoint lexical name reuse");
     expect(minify::javascript("function siblings(){function first(longValue){return longValue}function second(otherValue){return otherValue}return first(1)+second(2)}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function siblings(){function first($){return $}function second($){return $}return first(1)+second(2)}","structured sibling function name reuse");
+    expect(minify::javascript("function sequential(){var firstValue=1;use(firstValue);var secondValue=2;use(secondValue)}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function sequential(){var $=1;use($);var $=2;use($)}","structured straight-line var live-range reuse");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
