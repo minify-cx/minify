@@ -740,6 +740,12 @@ int main() {
     eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
     expect(minify::javascript("function keep(longName){return function(){return eval('longName')}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return function(){return eval('longName')}}","structured descendant dynamic lookup barrier");
+    std::string original_signature, renamed_signature;
+    expect(minify::javascript_binding_signature("function total(longValue){return longValue+externalValue}",original_signature,err),err);
+    expect(minify::javascript_binding_signature("function total($){return $+externalValue}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"binding signature accepts consistent alpha renaming");
+    expect(minify::javascript_binding_signature("function total($){return otherValue+externalValue}",renamed_signature,err),err);
+    expect(renamed_signature != original_signature,"binding signature rejected inconsistent alpha renaming");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

@@ -821,6 +821,41 @@ bool js_tokens_are_ordered(const std::string& source, const std::vector<JsToken>
     return true;
 }
 
+std::string build_js_binding_signature(const std::vector<JsToken>& tokens,
+                                       const JsConcreteSyntax& syntax,
+                                       const JsScopeGraph& graph) {
+    std::vector<std::size_t> binding_at(tokens.size(), graph.bindings.size());
+    for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding)
+        for (std::size_t token : graph.bindings[binding].declaration_tokens)
+            binding_at[token] = binding;
+    std::string signature;
+    signature.reserve(tokens.size() * 3);
+    for (std::size_t token = 0; token < tokens.size(); ++token) {
+        if (tokens[token].kind != JsTokenKind::Identifier) continue;
+        if (binding_at[token] < graph.bindings.size()) {
+            signature += "D" + std::to_string(binding_at[token]) + ";";
+            continue;
+        }
+        const std::size_t reference = token < graph.reference_at_token.size()
+            ? graph.reference_at_token[token] : tokens.size();
+        if (reference < graph.references.size()) {
+            const JsReference& occurrence = graph.references[reference];
+            if (occurrence.binding < graph.bindings.size()) {
+                signature += "R" + std::to_string(occurrence.binding);
+                signature += occurrence.access == JsReferenceAccess::Read ? "r;"
+                    : occurrence.access == JsReferenceAccess::Write ? "w;" : "x;";
+            } else {
+                signature += "U" + std::string(tokens[token].text) + ";";
+            }
+            continue;
+        }
+        const unsigned role = token < syntax.identifier_roles.size()
+            ? static_cast<unsigned>(syntax.identifier_roles[token]) : 0;
+        signature += "K" + std::to_string(role) + ":" + std::string(tokens[token].text) + ";";
+    }
+    return signature;
+}
+
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph) {
@@ -2403,7 +2438,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               bool collect_tokens = false, bool structured_rewrite = false,
                               bool aggressive_rewrite = false,
                               const std::vector<std::string>* property_allowlist = nullptr,
-                              const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr) {
+                              const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
+                              std::string* binding_signature = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -2849,6 +2885,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
+        if (binding_signature)
+            *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
         const JsSemanticFacts facts = build_js_semantic_facts(tokens);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
@@ -2921,6 +2959,14 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
                              options.optimization == OptimizationLevel::Aggressive
                                  ? &options.property_mangle_allowlist : nullptr,
                              &options.disabled_javascript_passes);
+}
+
+bool javascript_binding_signature(const std::string& input, std::string& signature,
+                                  std::string& error) {
+    std::string ignored;
+    signature.clear();
+    return minify_javascript(input, ignored, error, false, true, false, false,
+                             nullptr, nullptr, &signature);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
