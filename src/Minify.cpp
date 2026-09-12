@@ -213,6 +213,16 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
     }
 }
 
+struct JsPrintResult { std::string text; bool ordered = true; };
+JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::vector<JsToken>& tokens) {
+    JsPrintResult result; result.text.reserve(source.size()); std::size_t cursor = 0;
+    for (const auto& token : tokens) {
+        if (token.begin < cursor || token.end < token.begin || token.end > source.size()) { result.ordered=false; result.text=source; return result; }
+        result.text.append(source,cursor,token.begin-cursor); result.text.append(source,token.begin,token.end-token.begin); cursor=token.end;
+    }
+    result.text.append(source,cursor,source.size()-cursor); return result;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1257,10 +1267,10 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 !binds_more_tightly && last_token != "new" &&
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
+            record_token(JsTokenKind::Identifier, begin, i);
             if (boolean_expression) output += shorten_js_boolean(word, true);
             else {
                 output += word;
-                record_token(JsTokenKind::Identifier, begin, i);
             }
 
             const bool was_pending_control_paren = pending_control_paren;
@@ -1554,6 +1564,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
         [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens);
+        [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
     }
     error.clear();
     return true;
