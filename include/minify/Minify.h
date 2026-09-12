@@ -18,6 +18,7 @@ enum class JavaScriptOptimizationPass {
     CompoundAssignment,
     DeclarationJoin,
     UnusedBinding,
+    DeadStore,
     LiteralIife,
     PropertyMangle
 };

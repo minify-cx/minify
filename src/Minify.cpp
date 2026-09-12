@@ -1736,6 +1736,35 @@ std::vector<JsReplacement> plan_js_unused_empty_vars(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_adjacent_dead_var_stores(
+    const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
+    const JsSemanticFacts& facts) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t token = 0; token + 7 < tokens.size(); ++token) {
+        if (tokens[token].kind != JsTokenKind::Identifier || tokens[token + 1].text != "=" ||
+            facts.values[token + 2] == JsValueKind::Unknown || tokens[token + 3].text != ";" ||
+            tokens[token + 4].kind != JsTokenKind::Identifier || tokens[token + 5].text != "=" ||
+            facts.values[token + 6] == JsValueKind::Unknown || tokens[token + 7].text != ";")
+            continue;
+        const std::size_t first_ref = graph.reference_at_token[token];
+        const std::size_t second_ref = graph.reference_at_token[token + 4];
+        if (first_ref >= graph.references.size() || second_ref >= graph.references.size()) continue;
+        const JsReference& first = graph.references[first_ref];
+        const JsReference& second = graph.references[second_ref];
+        if (first.access != JsReferenceAccess::Write ||
+            second.access != JsReferenceAccess::Write || first.binding != second.binding ||
+            first.binding >= graph.bindings.size()) continue;
+        const JsBinding& binding = graph.bindings[first.binding];
+        if (binding.kind != JsBindingKind::Var ||
+            graph.scopes[binding.scope].dynamic_lookup ||
+            graph.scopes[binding.scope].descendant_dynamic_lookup ||
+            graph.binding_uses[first.binding].captures) continue;
+        replacements.push_back({tokens[token].begin, tokens[token + 3].end, ""});
+        token += 3;
+    }
+    return replacements;
+}
+
 std::vector<JsReplacement> plan_js_literal_iifes(
     const std::vector<JsToken>& tokens, const JsSemanticFacts& facts) {
     std::vector<JsReplacement> replacements;
@@ -3211,6 +3240,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 if (!unused_vars.empty()) append(std::move(unused_vars));
                 else if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin))
                     append(plan_js_var_declaration_joins(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::DeadStore))
+                    append(plan_js_adjacent_dead_var_stores(tokens, scopes, facts));
                 if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens, facts));
                 if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
                     append(plan_js_property_mangling(tokens, *property_allowlist));
