@@ -19,12 +19,10 @@ outside the safe subset.
   ASan/UBSan (`ASAN_OPTIONS=detect_leaks=0`).
 - In-repository smoke, Node, module, scope, structured, aggressive differential,
   format, cross-format, and CLI gates passed.
-- The TypeScript JSX/TSX oracle accepted 216 of 221 cases and reported five
-  token differences. All five are intentional alpha-renames of block-arrow
-  parameters inside JSX expressions; both forms parse and preserve JSX text.
-  That oracle compares identifier spelling and therefore cannot certify a
-  binding-mangling transformation. This is an oracle limitation, not counted
-  as a semantic conformance pass.
+- The TypeScript JSX/TSX oracle passed all 221 cases with structured expression
+  mangling enabled. Its scope-aware token projection canonicalizes resolved
+  local parameter and variable symbols while retaining exact spelling for
+  globals, properties, JSX names, types, labels, and unresolved references.
 
 The optional local PostCSS and repository-local TypeScript checks skipped when
 their dependencies were unavailable; the dedicated TypeScript JSX/TSX corpus
