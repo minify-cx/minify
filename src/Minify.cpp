@@ -107,6 +107,34 @@ struct JsReplacement {
     std::string text;
 };
 
+enum class JsSyntaxKind { Root, Parentheses, Brackets, Braces, Token };
+struct JsSyntaxNode { JsSyntaxKind kind; std::size_t first_token; std::size_t last_token; std::size_t parent; };
+struct JsConcreteSyntax { std::vector<JsSyntaxNode> nodes; bool balanced = true; };
+
+JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
+    JsConcreteSyntax syntax;
+    syntax.nodes.push_back({JsSyntaxKind::Root, 0, tokens.size(), 0});
+    std::vector<std::size_t> groups{0};
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const std::string& text = tokens[index].text;
+        JsSyntaxKind kind = text == "(" ? JsSyntaxKind::Parentheses
+            : text == "[" ? JsSyntaxKind::Brackets
+            : text == "{" ? JsSyntaxKind::Braces : JsSyntaxKind::Token;
+        if (kind != JsSyntaxKind::Token) {
+            syntax.nodes.push_back({kind, index, tokens.size(), groups.back()});
+            groups.push_back(syntax.nodes.size() - 1);
+        } else if (text == ")" || text == "]" || text == "}") {
+            const JsSyntaxKind expected = text == ")" ? JsSyntaxKind::Parentheses
+                : text == "]" ? JsSyntaxKind::Brackets : JsSyntaxKind::Braces;
+            if (groups.size() == 1 || syntax.nodes[groups.back()].kind != expected)
+                syntax.balanced = false;
+            else { syntax.nodes[groups.back()].last_token = index + 1; groups.pop_back(); }
+        } else syntax.nodes.push_back({JsSyntaxKind::Token, index, index + 1, groups.back()});
+    }
+    if (groups.size() != 1) syntax.balanced = false;
+    return syntax;
+}
+
 std::size_t matching_js_token(const std::vector<JsToken>& tokens,
                               std::size_t open, const char* left,
                               const char* right) {
@@ -1443,6 +1471,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
     if (!preserve_jsx_boundaries && !output.empty() && output.back() == ';' &&
         js_semicolon_may_be_elided(before_semicolon_token)) {
         output.pop_back();
+    }
+    if (recorder) {
+        [[maybe_unused]] const JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
     }
     error.clear();
     return true;
