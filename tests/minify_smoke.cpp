@@ -130,13 +130,13 @@ int main() {
     expect(out.find("<!--[if IE]>") != std::string::npos, "conditional comment removed");
 
     expect(minify::javascript("const  x = 1; // comment\nconst y = x + 2;\n", out, err), err);
-    eq(out, "const x=1;const y=x+2;", "JavaScript delimited newline removal");
+    eq(out, "const x=1;const y=x+2", "JavaScript delimited newline removal");
     expect(out.find("// comment") == std::string::npos, "JS line comment retained");
     expect(minify::javascript("const r = /https?:\\/\\/example\\.com/; /*x*/\nconst t=` a  b `;", out, err), err);
     expect(out.find("/https?:\\/\\/example\\.com/") != std::string::npos, "JS regex damaged");
     expect(out.find("` a  b `") != std::string::npos, "JS template damaged");
     expect(minify::javascript("return\n  value;", out, err), err);
-    eq(out, "return\nvalue;", "JavaScript restricted-production newline preservation");
+    eq(out, "return\nvalue", "JavaScript restricted-production newline preservation");
     expect(out.find("return\n") != std::string::npos, "ASI-sensitive newline removed");
     expect(minify::javascript("a\n(b);a\n[b];a\n/regex/.test(b);", out, err), err);
     expect(out.find("a\n(b)") != std::string::npos &&
@@ -144,7 +144,12 @@ int main() {
            out.find("a\n/regex/") != std::string::npos,
            "JavaScript expression-continuation newlines stripped");
     expect(minify::javascript("if(a){\nwork();\n}\nnext();", out, err), err);
-    eq(out, "if(a){work();}next();", "JavaScript block-boundary newline removal");
+    eq(out, "if(a){work()}next()", "JavaScript block-boundary compaction");
+    expect(minify::javascript("function f(){return call();}const x=1;", out, err), err);
+    eq(out, "function f(){return call()}const x=1", "JavaScript redundant semicolon removal");
+    expect(minify::javascript("function f(){while(test);label:;}for(;;);", out, err), err);
+    eq(out, "function f(){while(test);label:;}for(;;);",
+       "JavaScript meaningful empty statements preserved");
     expect(minify::javascript("const x = value / *ptr; const y = left * /re/.test(s);", out, err), err);
     expect(out.find("/ *") != std::string::npos,
            "JS whitespace removal created a block-comment opener");
@@ -210,23 +215,23 @@ int main() {
     expect(minify::javascript("''/*\u2028*/''", out, err), err);
     eq(out, "''\n''", "JavaScript Unicode line separator comment ASI");
     expect(minify::javascript("const x=`foo ${`bar ${5} baz`} qux`;", out, err), err);
-    eq(out, "const x=`foo ${`bar ${5} baz`} qux`;", "JavaScript nested template raw text");
+    eq(out, "const x=`foo ${`bar ${5} baz`} qux`", "JavaScript nested template raw text");
     expect(minify::javascript("const x=/a/ instanceof RegExp;", out, err), err);
-    eq(out, "const x=/a/ instanceof RegExp;", "JavaScript regex keyword boundary");
+    eq(out, "const x=/a/ instanceof RegExp", "JavaScript regex keyword boundary");
     // Template-literal expressions must lex regular-expression literals so a
     // backtick, brace or `//`-lookalike inside a regex cannot corrupt template
     // or expression frame state. These were valid programs that Minify++
     // rejected as unterminated templates.
     expect(minify::javascript("const x=`a${/[`]/.test(s)}b`;", out, err), err);
-    eq(out, "const x=`a${/[`]/.test(s)}b`;", "JavaScript template regex backtick class");
+    eq(out, "const x=`a${/[`]/.test(s)}b`", "JavaScript template regex backtick class");
     expect(minify::javascript("const x=`a${/[{}\\/]/.test(s)}b`;", out, err), err);
-    eq(out, "const x=`a${/[{}\\/]/.test(s)}b`;", "JavaScript template regex brace/escape class");
+    eq(out, "const x=`a${/[{}\\/]/.test(s)}b`", "JavaScript template regex brace/escape class");
     expect(minify::javascript("const x=`a${s.replace(/\\//g, \"\")}b`;", out, err), err);
-    eq(out, "const x=`a${s.replace(/\\//g, \"\")}b`;", "JavaScript template regex escaped slash");
+    eq(out, "const x=`a${s.replace(/\\//g, \"\")}b`", "JavaScript template regex escaped slash");
     expect(minify::javascript("const x=`a${1+/a{2}/.test(s)}b`;", out, err), err);
-    eq(out, "const x=`a${1+/a{2}/.test(s)}b`;", "JavaScript template regex after operator");
+    eq(out, "const x=`a${1+/a{2}/.test(s)}b`", "JavaScript template regex after operator");
     expect(minify::javascript("const x=`a${`b${c}`}d`;", out, err), err);
-    eq(out, "const x=`a${`b${c}`}d`;", "JavaScript template nested template expression");
+    eq(out, "const x=`a${`b${c}`}d`", "JavaScript template nested template expression");
     // The same template/regular-expression lexing applies inside JSX
     // expression braces, where a backtick inside a regex character class used
     // to close the quoted-region scan early and corrupt the brace balance.

@@ -727,6 +727,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
     std::vector<bool> control_parens;
     std::vector<bool> block_braces;
     std::string last_token;
+    std::string before_semicolon_token;
     bool pending_class_brace = false;
     bool pending_class_expression = false;
     bool pending_function_brace = false;
@@ -1041,6 +1042,16 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
         if (c == '}') {
             emit_pending(c);
+            // A statement terminator is implied before a closing brace. Keep
+            // semicolons which form an empty control/labelled statement; all
+            // other immediately preceding semicolons are redundant.
+            if (!output.empty() && output.back() == ';' &&
+                before_semicolon_token != ")control" &&
+                before_semicolon_token != ":" &&
+                before_semicolon_token != "{" &&
+                before_semicolon_token != ";") {
+                output.pop_back();
+            }
             output.push_back(c);
             const bool was_block = block_braces.empty() ? true : block_braces.back();
             if (!block_braces.empty()) block_braces.pop_back();
@@ -1054,6 +1065,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         emit_pending(c);
         output.push_back(c);
         pending_control_paren = false;
+
+        if (c == ';') before_semicolon_token = last_token;
 
         if (static_cast<unsigned char>(c) >= 0x80 || word_char(c) ||
             c == ']' || c == '.' || c == '\'' || c == '"' || c == '`') {
@@ -1071,6 +1084,13 @@ static bool minify_javascript(const std::string& input, std::string& output,
     }
 
     while (!output.empty() && ws(output.back())) output.pop_back();
+    if (!output.empty() && output.back() == ';' &&
+        before_semicolon_token != ")control" &&
+        before_semicolon_token != ":" &&
+        before_semicolon_token != "{" &&
+        before_semicolon_token != ";") {
+        output.pop_back();
+    }
     error.clear();
     return true;
 }
