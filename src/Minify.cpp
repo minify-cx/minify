@@ -1041,6 +1041,11 @@ std::string build_js_ir_signature(const std::vector<JsToken>& tokens,
             std::to_string(node.parent) + ";";
     }
     signature += "T" + std::to_string(tokens.size()) + ";";
+    for (std::size_t token = 0; token < tokens.size(); ++token)
+        if (syntax.expression_kinds[token] != JsExpressionKind::None)
+            signature += "E" + std::to_string(token) + ":" +
+                std::to_string(static_cast<unsigned>(syntax.expression_kinds[token])) +
+                ":" + std::to_string(syntax.expression_precedence[token]) + ";";
     return signature;
 }
 
