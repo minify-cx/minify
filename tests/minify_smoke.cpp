@@ -774,6 +774,8 @@ int main() {
     eq(structured,"while(condition);for(;;);do;while(condition);","semantic printer preserves loop empty statements");
     expect(minify::javascript("function f(){return\n{x:1}}\n/a/.test(x)",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function f(){return\n{x:1}}\n/a/.test(x)","semantic printer preserves ASI and regex boundaries");
+    expect(minify::javascript_effect_signature("async function f(xs){for(const x of xs)await new Box(x);return x}",original_signature,err),err);
+    expect(original_signature.find("A;")!=std::string::npos&&original_signature.find("I;")!=std::string::npos&&original_signature.find("S;")!=std::string::npos&&original_signature.find("X;")!=std::string::npos,"composable effect lattice inventory");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");

@@ -153,10 +153,26 @@ struct JsEffectSummary {
     bool writes_state = false;
     bool calls_user_code = false;
     bool may_throw = false;
+    bool allocates_identity = false;
+    bool mutates_value = false;
+    bool iterates = false;
+    bool suspends = false;
+    bool terminates_abruptly = false;
     bool definitely_pure() const {
-        return !reads_state && !writes_state && !calls_user_code && !may_throw;
+        return !reads_state && !writes_state && !calls_user_code && !may_throw &&
+               !allocates_identity && !mutates_value && !iterates && !suspends &&
+               !terminates_abruptly;
     }
 };
+
+[[maybe_unused]] JsEffectSummary sequence_js_effects(JsEffectSummary left, const JsEffectSummary& right) {
+    left.reads_state |= right.reads_state; left.writes_state |= right.writes_state;
+    left.calls_user_code |= right.calls_user_code; left.may_throw |= right.may_throw;
+    left.allocates_identity |= right.allocates_identity; left.mutates_value |= right.mutates_value;
+    left.iterates |= right.iterates; left.suspends |= right.suspends;
+    left.terminates_abruptly |= right.terminates_abruptly;
+    return left;
+}
 
 struct JsSemanticFacts {
     std::vector<JsValueKind> values;
@@ -237,6 +253,11 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
                 summary.may_throw = true;
             }
         }
+        if (token.text == "return" || token.text == "throw" || token.text == "break" ||
+            token.text == "continue") summary.terminates_abruptly = true;
+        if (token.text == "await" || token.text == "yield") summary.suspends = true;
+        if (token.text == "new") summary.allocates_identity = true;
+        if (token.text == "for" && index + 1 < tokens.size()) summary.iterates = true;
     }
     return facts;
 }
@@ -1024,6 +1045,12 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
             signature += facts.invocations[token] == JsInvocationKind::Construct ? "N;" : "C;";
         if (tokens[token].text == "." || tokens[token].text == "[") signature += "P;";
         if (tokens[token].text == "throw") signature += "T;";
+        const JsEffectSummary& summary = facts.effect_summaries[token];
+        if (summary.allocates_identity) signature += "A;";
+        if (summary.mutates_value) signature += "M;";
+        if (summary.iterates) signature += "I;";
+        if (summary.suspends) signature += "S;";
+        if (summary.terminates_abruptly) signature += "X;";
     }
     return signature;
 }
