@@ -732,6 +732,13 @@ int main() {
     eq(aggressive,"function f(){var first,second;return 1}","aggressive adjacent var declaration join");
     expect(minify::javascript("const answer=(function(){return 42;})();",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const answer=42","aggressive literal IIFE compression");
+    minify::Options bisect_options(minify::OptimizationLevel::Aggressive);
+    bisect_options.disabled_javascript_passes = {
+        minify::JavaScriptOptimizationPass::BindingRename,
+        minify::JavaScriptOptimizationPass::ConstantFold
+    };
+    expect(minify::javascript("function total(longName){return (200+30)+longName;}",aggressive,err,bisect_options),err);
+    eq(aggressive,"function total(longName){return(200+30)+longName}","independent JavaScript pass disablement");
     minify::Options property_options;property_options.optimization=minify::OptimizationLevel::Aggressive;property_options.property_mangle_allowlist={"internalValue"};
     expect(minify::javascript("const box={internalValue:3};box.internalValue;box.publicValue;",aggressive,err,property_options),err);
     eq(aggressive,"const box={$:3};box.$;box.publicValue","explicit property allowlist mangling");

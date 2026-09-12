@@ -10,6 +10,16 @@ inline constexpr int format_version = 1;
 
 enum class Format { Html, Css, JavaScript, Jsx, Json, Xml, Svg };
 enum class OptimizationLevel { Conservative, Structured, Aggressive };
+enum class JavaScriptOptimizationPass {
+    BindingRename,
+    ConstantFold,
+    ConstantConditional,
+    UnreachableCode,
+    CompoundAssignment,
+    DeclarationJoin,
+    LiteralIife,
+    PropertyMangle
+};
 
 struct Options {
     Options() = default;
@@ -17,6 +27,7 @@ struct Options {
     OptimizationLevel optimization = OptimizationLevel::Conservative;
     bool structured_jsx_expressions = false;
     std::vector<std::string> property_mangle_allowlist;
+    std::vector<JavaScriptOptimizationPass> disabled_javascript_passes;
 };
 
 bool html(const std::string& input, std::string& output, std::string& error);

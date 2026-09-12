@@ -1471,7 +1471,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               std::string& error, bool preserve_jsx_boundaries,
                               bool collect_tokens = false, bool structured_rewrite = false,
                               bool aggressive_rewrite = false,
-                              const std::vector<std::string>* property_allowlist = nullptr) {
+                              const std::vector<std::string>* property_allowlist = nullptr,
+                              const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -1910,31 +1911,37 @@ static bool minify_javascript(const std::string& input, std::string& output,
         resolve_js_references(scopes, tokens);
         [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
         if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
-            auto replacements = plan_safe_js_parameter_renaming(tokens, syntax, scopes);
+            const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
+                return !disabled_passes || std::find(disabled_passes->begin(),
+                    disabled_passes->end(), pass) == disabled_passes->end();
+            };
+            auto replacements = pass_enabled(JavaScriptOptimizationPass::BindingRename)
+                ? plan_safe_js_parameter_renaming(tokens, syntax, scopes)
+                : std::vector<JsReplacement>{};
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
                 if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                 return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                          aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
-                                         property_allowlist);
+                                         property_allowlist, disabled_passes);
             }
             if (aggressive_rewrite) {
                 auto append = [&](std::vector<JsReplacement> more) {
                     replacements.insert(replacements.end(), more.begin(), more.end());
                 };
-                append(plan_js_constant_folding(tokens));
-                append(plan_js_constant_conditionals(tokens));
-                append(plan_js_unreachable_debuggers(tokens));
-                append(plan_js_compound_assignments(tokens, scopes));
-                append(plan_js_var_declaration_joins(tokens));
-                append(plan_js_literal_iifes(tokens));
-                if (property_allowlist)
+                if (pass_enabled(JavaScriptOptimizationPass::ConstantFold)) append(plan_js_constant_folding(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::ConstantConditional)) append(plan_js_constant_conditionals(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::UnreachableCode)) append(plan_js_unreachable_debuggers(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::CompoundAssignment)) append(plan_js_compound_assignments(tokens, scopes));
+                if (pass_enabled(JavaScriptOptimizationPass::DeclarationJoin)) append(plan_js_var_declaration_joins(tokens));
+                if (pass_enabled(JavaScriptOptimizationPass::LiteralIife)) append(plan_js_literal_iifes(tokens));
+                if (property_allowlist && pass_enabled(JavaScriptOptimizationPass::PropertyMangle))
                     append(plan_js_property_mangling(tokens, *property_allowlist));
                 if (!replacements.empty()) {
                     const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
                     if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                     return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
-                                             false, false, false, nullptr);
+                                             false, false, false, nullptr, disabled_passes);
                 }
             }
         }
@@ -1954,7 +1961,8 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
                              options.optimization != OptimizationLevel::Conservative,
                              options.optimization == OptimizationLevel::Aggressive,
                              options.optimization == OptimizationLevel::Aggressive
-                                 ? &options.property_mangle_allowlist : nullptr);
+                                 ? &options.property_mangle_allowlist : nullptr,
+                             &options.disabled_javascript_passes);
 }
 
 static bool minify_xml_like(const std::string& input, std::string& output,
@@ -2393,7 +2401,8 @@ static bool minify_jsx(const std::string& input, std::string& output,
                        std::string& error, bool collect_tokens,
                        bool structured_expressions = false,
                        bool inside_expression = false,
-                       bool aggressive_expressions = false) {
+                       bool aggressive_expressions = false,
+                       const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr) {
     output.clear();
     output.reserve(input.size());
 
@@ -2404,7 +2413,8 @@ static bool minify_jsx(const std::string& input, std::string& output,
         std::string part, e;
         if (!minify_javascript(input.substr(js_start, end - js_start), part, e,
                                true, collect_tokens, structured_expressions && inside_expression,
-                               aggressive_expressions && inside_expression)) {
+                               aggressive_expressions && inside_expression, nullptr,
+                               disabled_passes)) {
             error = e;
             return false;
         }
@@ -2594,7 +2604,7 @@ static bool minify_jsx(const std::string& input, std::string& output,
                             std::string expr, e;
                             if (!minify_jsx(input.substr(k + 1, qpos - k - 2), expr, e,
                                             collect_tokens, structured_expressions, true,
-                                            aggressive_expressions)) {
+                                            aggressive_expressions, disabled_passes)) {
                                 error = e; output.clear(); return false;
                             }
                             output.push_back('{'); output += expr; output.push_back('}');
@@ -2626,7 +2636,7 @@ static bool minify_jsx(const std::string& input, std::string& output,
                 std::string expr, e;
                 if (!minify_jsx(input.substr(p + 1, j - p - 2), expr, e,
                                 collect_tokens, structured_expressions, true,
-                                aggressive_expressions)) {
+                                aggressive_expressions, disabled_passes)) {
                     error = e; output.clear(); return false;
                 }
                 output.push_back('{'); output += expr; output.push_back('}');
@@ -2684,7 +2694,7 @@ static bool minify_jsx(const std::string& input, std::string& output,
 }
 
 bool jsx(const std::string& input, std::string& output, std::string& error) {
-    return minify_jsx(input, output, error, false, false, false, false);
+    return minify_jsx(input, output, error, false, false, false, false, nullptr);
 }
 
 bool jsx(const std::string& input, std::string& output, std::string& error,
@@ -2693,7 +2703,8 @@ bool jsx(const std::string& input, std::string& output, std::string& error,
                       options.optimization != OptimizationLevel::Conservative,
                       options.structured_jsx_expressions, false,
                       options.optimization == OptimizationLevel::Aggressive &&
-                          options.structured_jsx_expressions);
+                          options.structured_jsx_expressions,
+                      &options.disabled_javascript_passes);
 }
 
 bool format_for_extension(const std::string& extension, Format& format) {
