@@ -239,6 +239,7 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     graph.scopes.push_back({module ? JsScopeKind::Module : JsScopeKind::Script, 0, 0,
                             tokens.size(), false, {}});
     std::vector<std::size_t> scopes{0};
+    std::vector<bool> brace_creates_scope;
     JsScopeKind pending = JsScopeKind::Block;
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         graph.scope_at_token[index] = scopes.back();
@@ -248,6 +249,9 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
         else if (text == "catch") pending = JsScopeKind::Catch;
         if (text == "eval" || text == "with") graph.scopes[scopes.back()].dynamic_lookup = true;
         if (text == "{") {
+            const bool creates_scope = tokens[index].brace_kind != JsBraceKind::Object;
+            brace_creates_scope.push_back(creates_scope);
+            if (!creates_scope) continue;
             graph.scopes.push_back({pending, scopes.back(), index, tokens.size(), false, {}});
             scopes.push_back(graph.scopes.size() - 1);
             graph.scope_at_token[index] = scopes.back();
@@ -259,8 +263,12 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
                         graph.scopes.back().bindings.push_back({tokens[p].text, p});
             }
             pending = JsScopeKind::Block;
-        } else if (text == "}" && scopes.size() > 1) {
-            graph.scopes[scopes.back()].last_token = index + 1; scopes.pop_back();
+        } else if (text == "}" && !brace_creates_scope.empty()) {
+            const bool closes_scope = brace_creates_scope.back();
+            brace_creates_scope.pop_back();
+            if (closes_scope && scopes.size() > 1) {
+                graph.scopes[scopes.back()].last_token = index + 1; scopes.pop_back();
+            }
         } else if (index && tokens[index].kind == JsTokenKind::Identifier) {
             const std::string& previous = tokens[index - 1].text;
             if (previous == "var" || previous == "let" || previous == "const" || previous == "function" || previous == "class" || previous == "catch")
