@@ -295,7 +295,7 @@ struct JsControlFlowGraph {
     std::vector<bool> abrupt;
 };
 
-JsControlFlowGraph build_js_control_flow(const std::vector<JsToken>& tokens,
+[[maybe_unused]] JsControlFlowGraph build_js_control_flow(const std::vector<JsToken>& tokens,
                                          const JsConcreteSyntax& syntax) {
     JsControlFlowGraph flow;
     flow.successors.resize(tokens.size());
@@ -1753,6 +1753,10 @@ std::vector<JsReplacement> plan_js_unused_empty_vars(
     const std::vector<JsToken>& tokens, const JsScopeGraph& graph,
     const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
+    std::unordered_set<std::string_view> unresolved_names;
+    unresolved_names.reserve(graph.unresolved_references.size());
+    for (std::size_t reference : graph.unresolved_references)
+        unresolved_names.insert(tokens[graph.references[reference].token].text);
     for (std::size_t binding = 0; binding < graph.bindings.size(); ++binding) {
         const JsBinding& candidate = graph.bindings[binding];
         if (candidate.kind != JsBindingKind::Var || candidate.scope >= graph.scopes.size() ||
@@ -1765,13 +1769,7 @@ std::vector<JsReplacement> plan_js_unused_empty_vars(
             candidate.token + 1 >= tokens.size() ||
             tokens[candidate.token - 1].text != "var" ||
             tokens[candidate.token + 1].text != ";") continue;
-        bool unresolved_same_name = false;
-        for (std::size_t reference : graph.unresolved_references)
-            if (tokens[graph.references[reference].token].text == candidate.name) {
-                unresolved_same_name = true;
-                break;
-            }
-        if (unresolved_same_name) continue;
+        if (unresolved_names.count(candidate.name)) continue;
         const std::size_t node = syntax.node_at_token[candidate.token - 1];
         const std::size_t parent = node < syntax.nodes.size()
             ? syntax.nodes[node].parent : syntax.nodes.size();
@@ -3237,8 +3235,6 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
         const JsSemanticFacts facts = build_js_semantic_facts(tokens);
-        [[maybe_unused]] const JsControlFlowGraph control_flow =
-            build_js_control_flow(tokens, syntax);
         if (binding_signature)
             *binding_signature = build_js_binding_signature(tokens, syntax, scopes);
         if (effect_signature)
