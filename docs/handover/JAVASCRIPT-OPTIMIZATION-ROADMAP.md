@@ -134,6 +134,12 @@ printer, complete binding-pattern and module coverage, control-flow graph,
 effect/escape analysis and frequency-weighted allocator remain required before
 comprehensive structured mangling is activated.
 
+The subsequent performance sequence and bounded Phase 3/4 work are recorded in
+`docs/evidence/performance-and-optimizer-phases-3-4.md`. In particular, that
+evidence records two executable-bundle failures that Test262 alone did not
+expose. Captured-binding renaming and dead-local elimination remain disabled;
+they must not be presented as completed roadmap capabilities.
+
 ## Aggressive checkpoint execution — 2026-09-12
 
 Checkpoints 21–30 activate a separately named, CLI/API opt-in aggressive layer.
