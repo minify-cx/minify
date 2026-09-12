@@ -225,6 +225,7 @@ struct JsConcreteSyntax {
     std::vector<JsBindingPatternKind> binding_patterns;
     std::vector<JsFunctionContext> function_contexts;
     std::vector<JsModuleRole> module_roles;
+    std::vector<bool> parameter_initializer_tokens;
     bool balanced = true;
 };
 
@@ -269,6 +270,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.binding_patterns.resize(tokens.size(), JsBindingPatternKind::None);
     syntax.function_contexts.resize(tokens.size(), JsFunctionContext::None);
     syntax.module_roles.resize(tokens.size(), JsModuleRole::None);
+    syntax.parameter_initializer_tokens.resize(tokens.size(), false);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -303,6 +305,25 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             syntax.children.emplace_back();
             syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
+        }
+    }
+    for (std::size_t function = 0; function < tokens.size(); ++function) {
+        if (tokens[function].text != "function") continue;
+        std::size_t open = function + 1;
+        if (open < tokens.size() && tokens[open].text == "*") ++open;
+        if (open < tokens.size() && tokens[open].kind == JsTokenKind::Identifier) ++open;
+        if (open >= tokens.size() || tokens[open].text != "(" ||
+            syntax.matching_token[open] >= tokens.size()) continue;
+        const std::size_t close = syntax.matching_token[open];
+        unsigned nested = 0;
+        bool initializer = false;
+        for (std::size_t cursor = open + 1; cursor < close; ++cursor) {
+            const std::string_view text = tokens[cursor].text;
+            if (text == "(" || text == "[" || text == "{") ++nested;
+            else if ((text == ")" || text == "]" || text == "}") && nested) --nested;
+            else if (!nested && text == "=") initializer = true;
+            else if (!nested && text == ",") initializer = false;
+            else if (initializer) syntax.parameter_initializer_tokens[cursor] = true;
         }
     }
     for (std::size_t index = 0; index < tokens.size(); ++index) {
@@ -484,6 +505,7 @@ struct JsReference {
     std::size_t binding_scope;
     JsReferenceAccess access;
     bool captured;
+    bool parameter_initializer;
 };
 struct JsScope {
     JsScopeKind kind; std::size_t parent; std::size_t first_token; std::size_t last_token;
@@ -722,7 +744,14 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
         std::size_t resolved_scope = graph.scopes.size();
         for (std::size_t scope = containing;; scope = graph.scopes[scope].parent) {
             const auto found = bindings_by_name[scope].find(tokens[index].text);
-            if (found != bindings_by_name[scope].end()) { resolved = found->second; resolved_scope = scope; break; }
+            if (found != bindings_by_name[scope].end()) {
+                const JsBinding& candidate = graph.bindings[found->second];
+                const bool invalid_parameter_lookup = syntax.parameter_initializer_tokens[index] &&
+                    candidate.kind != JsBindingKind::Parameter && scope == containing;
+                if (!invalid_parameter_lookup) {
+                    resolved = found->second; resolved_scope = scope; break;
+                }
+            }
             if (!scope) break;
         }
         const std::string_view next = index + 1 < tokens.size() ? tokens[index + 1].text : std::string_view();
@@ -746,7 +775,8 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
                 if (graph.scopes[scope].kind == JsScopeKind::Function) { captured = true; break; }
             }
         }
-        graph.references.push_back({index, containing, resolved, resolved_scope, access, captured});
+        graph.references.push_back({index, containing, resolved, resolved_scope, access, captured,
+                                    syntax.parameter_initializer_tokens[index]});
         graph.reference_at_token[index] = graph.references.size() - 1;
         if (index < syntax.identifier_roles.size() && role != JsIdentifierRole::ShorthandProperty)
             syntax.identifier_roles[index] = JsIdentifierRole::Reference;
