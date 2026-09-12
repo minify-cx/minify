@@ -194,6 +194,10 @@ enum class JsExpressionKind {
     Assignment, Yield, Sequence, Arrow
 };
 enum class JsBindingPatternKind { None, Identifier, Object, Array, Rest, DefaultValue };
+enum class JsFunctionContext {
+    None, Ordinary, Async, Generator, AsyncGenerator, Arrow, Method, Getter,
+    Setter, Constructor, Class, StaticBlock
+};
 enum class JsIdentifierRole {
     Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
     Label, ImportExportName, PrivateName
@@ -215,6 +219,7 @@ struct JsConcreteSyntax {
     std::vector<JsExpressionKind> expression_kinds;
     std::vector<unsigned char> expression_precedence;
     std::vector<JsBindingPatternKind> binding_patterns;
+    std::vector<JsFunctionContext> function_contexts;
     bool balanced = true;
 };
 
@@ -257,6 +262,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.expression_kinds.resize(tokens.size(), JsExpressionKind::None);
     syntax.expression_precedence.resize(tokens.size(), 0);
     syntax.binding_patterns.resize(tokens.size(), JsBindingPatternKind::None);
+    syntax.function_contexts.resize(tokens.size(), JsFunctionContext::None);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -292,6 +298,32 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
         }
+    }
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        if (tokens[index].text == "class") {
+            syntax.function_contexts[index] = JsFunctionContext::Class;
+            continue;
+        }
+        if (tokens[index].text == "function") {
+            const bool async = index && tokens[index - 1].text == "async";
+            const bool generator = index + 1 < tokens.size() && tokens[index + 1].text == "*";
+            syntax.function_contexts[index] = async && generator ? JsFunctionContext::AsyncGenerator
+                : async ? JsFunctionContext::Async
+                : generator ? JsFunctionContext::Generator : JsFunctionContext::Ordinary;
+            continue;
+        }
+        if (tokens[index].text == "=" && index + 1 < tokens.size() && tokens[index + 1].text == ">")
+            syntax.function_contexts[index] = JsFunctionContext::Arrow;
+        else if (tokens[index].text == "constructor" && index + 1 < tokens.size() &&
+                 tokens[index + 1].text == "(")
+            syntax.function_contexts[index] = JsFunctionContext::Constructor;
+        else if ((tokens[index].text == "get" || tokens[index].text == "set") &&
+                 index + 2 < tokens.size() && tokens[index + 2].text == "(")
+            syntax.function_contexts[index] = tokens[index].text == "get"
+                ? JsFunctionContext::Getter : JsFunctionContext::Setter;
+        else if (tokens[index].text == "static" && index + 1 < tokens.size() &&
+                 tokens[index + 1].text == "{")
+            syntax.function_contexts[index] = JsFunctionContext::StaticBlock;
     }
     // Retain pattern boundaries independently of the renamer. This inventory
     // is intentionally non-mutating until binding/reference coverage is complete.
