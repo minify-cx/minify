@@ -502,6 +502,8 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
 
 struct JsPrintResult { std::string text; bool ordered = true; };
 std::string js_short_name(std::size_t index);
+std::string js_short_name(std::size_t index, const std::string& first,
+                          const std::string& continuation);
 JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::vector<JsToken>& tokens) {
     JsPrintResult result; result.text.reserve(source.size()); std::size_t cursor = 0;
     for (const auto& token : tokens) {
@@ -610,11 +612,31 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                    graph.references_by_binding[right].size();
         });
 
+        const std::string default_first = "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        const std::string default_continuation = default_first + "0123456789";
+        std::unordered_map<char, std::size_t> frequency;
+        for (std::size_t token = function.first_token; token < function.last_token; ++token)
+            for (char character : tokens[token].text)
+                if (default_continuation.find(character) != std::string::npos)
+                    ++frequency[character];
+        auto ranked = [&](std::string alphabet) {
+            std::stable_sort(alphabet.begin(), alphabet.end(), [&](char left, char right) {
+                return frequency[left] > frequency[right];
+            });
+            return alphabet;
+        };
+        const bool frequency_worthwhile = eligible.size() > default_first.size();
+        const std::string first_characters = frequency_worthwhile
+            ? ranked(default_first) : default_first;
+        const std::string continuation_characters = frequency_worthwhile
+            ? ranked(default_continuation) : default_continuation;
+
         std::size_t next_name = 0;
         for (std::size_t binding_id : eligible) {
             const JsBinding& binding = graph.bindings[binding_id];
             std::string replacement;
-            do replacement = js_short_name(next_name++);
+            do replacement = js_short_name(next_name++, first_characters,
+                                           continuation_characters);
             while (occupied.count(replacement));
             std::size_t ordinary = 1, shorthand = 0;
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
@@ -826,9 +848,12 @@ std::size_t matching_js_token(const std::vector<JsToken>& tokens,
 }
 
 std::string js_short_name(std::size_t index) {
-    static const std::string first = "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    static const std::string continuation =
-        "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    return js_short_name(index, "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                         "$_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+}
+
+std::string js_short_name(std::size_t index, const std::string& first,
+                          const std::string& continuation) {
     std::size_t length = 1;
     std::size_t capacity = first.size();
     while (index >= capacity) {
