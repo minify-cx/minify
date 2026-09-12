@@ -47,6 +47,9 @@ int main(int argc, char** argv) {
                   << result.tree.nodes.size();
         for (const auto& feature : features)
             std::cout << '\t' << feature.first << '=' << feature.second;
+        if (status != jspp::syntax::ParseStatus::Success)
+            std::cout << "\tat=" << result.diagnostic.range.begin
+                      << "\tdiagnostic=" << result.diagnostic.message;
         std::cout << '\n';
     }
 }
