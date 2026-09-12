@@ -701,5 +701,6 @@ int main() {
            conservative.find("{nested+1}") != std::string::npos,
            "JSX JavaScript regions were not conservatively minified");
 
+
     std::cout << "Standalone minifier smoke test passed\n";
 }

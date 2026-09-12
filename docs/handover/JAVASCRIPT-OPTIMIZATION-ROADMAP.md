@@ -119,3 +119,41 @@ Evidence at Test262 revision `72faf8ec1445c55149615e8b35187830783aba1a`:
 The sequence is intentionally incremental. A later checkpoint may be split, but
 scope, parser and conformance boundaries must not be combined merely to reduce
 the apparent number of steps.
+
+## Conservative checkpoint execution — 2026-09-12
+
+The ten controlled commits after the repaired baseline established the public
+policy API, a non-mutating source-positioned token inventory, recursive token
+coverage inside template substitutions, centralized separator/newline/semicolon
+decisions, centralized literal candidate selection, a module execution oracle,
+and consistent policy propagation through JSX regions. All three named policy
+levels still emit conservative output; no structured or aggressive rewrite is
+active.
+
+Linux release evidence:
+
+- Test262 revision `72faf8ec1445c55149615e8b35187830783aba1a`: 48,011
+  eligible scripts, 39,747 runtime-applicable original/transformed passes,
+  8,264 classified runtime incompatibilities, zero transformed failures;
+- TypeScript JSX corpus revision `1e4744d68260a7cb91b62b12edc3f6a2187faaf1`:
+  221/221 exact non-trivia token passes and zero transformed failures;
+- 15,459 generated JavaScript programs, 180 generated JSX programs, five
+  module differential cases, 70,000 deterministic fuzz cases, CLI,
+  cross-format and ASan/UBSan gates passed;
+- PostCSS semantic testing was skipped because PostCSS is not installed in the
+  release environment.
+
+Representative local benchmark output sizes were unchanged from the repaired
+baseline: JavaScript 850,000 -> 729,999 bytes, JavaScript-scope 690,000 ->
+639,999 bytes, and JSX 1,160,000 -> 1,070,000 bytes. Median throughput in a
+40-iteration sample was 70.8, 105.5 and 60.0 MiB/s respectively. The ordinary
+JavaScript scanner result is below the earlier 81.2 MiB/s sample, so token
+inventory overhead remains a performance item before declaring the conservative
+release gate complete.
+
+Checkpoint 8 currently supplies module-aware differential execution, but the
+independent Test262 selector still excludes modules; complete module corpus
+extraction remains open. Checkpoint 10 is likewise Linux-complete only. macOS
+and Windows conformance runs, a fixed-host RSS comparison, PostCSS installation,
+and representative real-bundle comparisons remain required before a portable
+release claim.

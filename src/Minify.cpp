@@ -5,6 +5,7 @@
 #include <cctype>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -17,7 +18,7 @@ bool ws(char c) {
 }
 
 std::string shortest_js_literal(const std::string& original,
-                                const std::vector<std::string>& alternatives) {
+                                std::initializer_list<std::string> alternatives) {
     const std::string* best = &original;
     for (const auto& candidate : alternatives) {
         if (candidate.size() < best->size()) best = &candidate;
@@ -401,6 +402,7 @@ bool js_needs_separator(char left, char right, bool after_regex,
            (after_regex && (std::isalpha(next) || right == '_' || right == '$' ||
                             next >= 0x80)) ||
            (left == '*' && right == '/') ||
+           (preserve_jsx_boundary && left == '/' && right == '>') ||
            (preserve_jsx_boundary && left == '<' &&
             (std::isalpha(next) || right == '>' || right == '/')) ||
            (std::isdigit(static_cast<unsigned char>(left)) && right == '.');
@@ -1142,8 +1144,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 !binds_more_tightly && last_token != "new" &&
                 (last_token.empty() || boolean_expression_prefixes.count(last_token) != 0);
             emit_pending(boolean_expression ? '!' : word.front());
-            const std::string literal = shorten_js_boolean(word, boolean_expression);
-            if (boolean_expression) output += literal;
+            if (boolean_expression) output += shorten_js_boolean(word, true);
             else {
                 output += word;
                 record_token(JsTokenKind::Identifier, begin, i);
@@ -1410,6 +1411,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         emit_pending(c);
         output.push_back(c);
         record_token(JsTokenKind::Punctuator, i, i + 1);
+        if (preserve_jsx_boundaries && c == '/' && i + 1 < input.size() &&
+            input[i + 1] == '>') output.push_back(' ');
         pending_control_paren = false;
 
         if (c == ';') before_semicolon_token = last_token;
