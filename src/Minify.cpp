@@ -193,6 +193,7 @@ enum class JsExpressionKind {
     BitwiseXor, BitwiseOr, LogicalAnd, LogicalOr, Nullish, Conditional,
     Assignment, Yield, Sequence, Arrow
 };
+enum class JsBindingPatternKind { None, Identifier, Object, Array, Rest, DefaultValue };
 enum class JsIdentifierRole {
     Unknown, Binding, Reference, PropertyKey, ShorthandProperty, MemberProperty,
     Label, ImportExportName, PrivateName
@@ -213,6 +214,7 @@ struct JsConcreteSyntax {
     std::vector<JsStatementKind> statement_kinds;
     std::vector<JsExpressionKind> expression_kinds;
     std::vector<unsigned char> expression_precedence;
+    std::vector<JsBindingPatternKind> binding_patterns;
     bool balanced = true;
 };
 
@@ -254,6 +256,7 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.statement_kinds.resize(tokens.size(), JsStatementKind::None);
     syntax.expression_kinds.resize(tokens.size(), JsExpressionKind::None);
     syntax.expression_precedence.resize(tokens.size(), 0);
+    syntax.binding_patterns.resize(tokens.size(), JsBindingPatternKind::None);
     std::vector<std::size_t> groups{0};
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
@@ -289,6 +292,25 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
             syntax.children[parent].push_back(syntax.nodes.size() - 1);
             syntax.node_at_token[index] = syntax.nodes.size() - 1;
         }
+    }
+    // Retain pattern boundaries independently of the renamer. This inventory
+    // is intentionally non-mutating until binding/reference coverage is complete.
+    for (std::size_t index = 0; index < tokens.size(); ++index) {
+        const std::string_view text = tokens[index].text;
+        const bool declaration_start = index &&
+            (tokens[index - 1].text == "var" || tokens[index - 1].text == "let" ||
+             tokens[index - 1].text == "const" || tokens[index - 1].text == "catch");
+        if (declaration_start && text == "{")
+            syntax.binding_patterns[index] = JsBindingPatternKind::Object;
+        else if (declaration_start && text == "[")
+            syntax.binding_patterns[index] = JsBindingPatternKind::Array;
+        else if (declaration_start && tokens[index].kind == JsTokenKind::Identifier)
+            syntax.binding_patterns[index] = JsBindingPatternKind::Identifier;
+        if (index >= 3 && tokens[index - 3].text == "." && tokens[index - 2].text == "." &&
+            tokens[index - 1].text == "." && tokens[index].kind == JsTokenKind::Identifier)
+            syntax.binding_patterns[index] = JsBindingPatternKind::Rest;
+        if (text == "=" && index && syntax.binding_patterns[index - 1] != JsBindingPatternKind::None)
+            syntax.binding_patterns[index] = JsBindingPatternKind::DefaultValue;
     }
     static const std::unordered_map<std::string_view,
         std::pair<JsExpressionKind, unsigned char>> operators = {
