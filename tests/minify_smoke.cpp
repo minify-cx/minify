@@ -538,7 +538,9 @@ int main() {
             std::exit(1);
         }
     };
-    idem_fn(minify::jsx, "const x=<div> hello  world </div>;", "JSX");
+    idem_fn([](const std::string& source, std::string& result, std::string& message) {
+        return minify::jsx(source, result, message);
+    }, "const x=<div> hello  world </div>;", "JSX");
 
 
     // JSX: preserve text/markup spelling, but minify embedded JS expressions and
@@ -646,6 +648,17 @@ int main() {
     expect(minify::format_for_extension(".svg", f) && f == minify::Format::Svg, "svg extension");
     expect(!minify::format_for_extension(".ts", f), "TypeScript source extension unexpectedly supported");
     expect(!minify::format_for_extension(".tsx", f), "TSX source extension unexpectedly supported");
+
+    const std::string policy_source = "const value = true;";
+    std::string conservative, structured, aggressive;
+    expect(minify::javascript(policy_source, conservative, err,
+                              {minify::OptimizationLevel::Conservative}), err);
+    expect(minify::javascript(policy_source, structured, err,
+                              {minify::OptimizationLevel::Structured}), err);
+    expect(minify::javascript(policy_source, aggressive, err,
+                              {minify::OptimizationLevel::Aggressive}), err);
+    eq(structured, conservative, "inactive structured policy changed output");
+    eq(aggressive, conservative, "inactive aggressive policy changed output");
 
     std::cout << "Standalone minifier smoke test passed\n";
 }

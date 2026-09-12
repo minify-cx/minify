@@ -1375,6 +1375,12 @@ bool javascript(const std::string& input, std::string& output, std::string& erro
     return minify_javascript(input, output, error, false);
 }
 
+bool javascript(const std::string& input, std::string& output, std::string& error,
+                const Options& options) {
+    (void)options;
+    return javascript(input, output, error);
+}
+
 static bool minify_xml_like(const std::string& input, std::string& output,
                             std::string& error, bool svg_mode) {
     output.clear();
@@ -2091,6 +2097,12 @@ bool jsx(const std::string& input, std::string& output, std::string& error) {
     return true;
 }
 
+bool jsx(const std::string& input, std::string& output, std::string& error,
+         const Options& options) {
+    (void)options;
+    return jsx(input, output, error);
+}
+
 bool format_for_extension(const std::string& extension, Format& format) {
     std::string ext = lower(extension);
     if (!ext.empty() && ext.front() != '.') ext.insert(ext.begin(), '.');
@@ -2105,11 +2117,16 @@ bool format_for_extension(const std::string& extension, Format& format) {
 }
 
 bool run(Format format, const std::string& input, std::string& output, std::string& error) {
+    return run(format, input, output, error, Options{});
+}
+
+bool run(Format format, const std::string& input, std::string& output,
+         std::string& error, const Options& options) {
     switch (format) {
         case Format::Html: return html(input, output, error);
         case Format::Css: return css(input, output, error);
-        case Format::JavaScript: return javascript(input, output, error);
-        case Format::Jsx: return jsx(input, output, error);
+        case Format::JavaScript: return javascript(input, output, error, options);
+        case Format::Jsx: return jsx(input, output, error, options);
         case Format::Json: return json(input, output, error);
         case Format::Xml: return xml(input, output, error);
         case Format::Svg: return svg(input, output, error);
