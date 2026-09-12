@@ -1331,6 +1331,16 @@ struct JsMangleCoverage {
     std::size_t concise_arrows = 0;
     std::size_t methods = 0;
     std::size_t catch_patterns = 0;
+    std::size_t eligible_bytes = 0;
+    std::size_t top_level_bytes = 0;
+    std::size_t unsupported_kind_bytes = 0;
+    std::size_t duplicate_bytes = 0;
+    std::size_t dynamic_scope_bytes = 0;
+    std::size_t arguments_bytes = 0;
+    std::size_t classes_bytes = 0;
+    std::size_t concise_arrows_bytes = 0;
+    std::size_t methods_bytes = 0;
+    std::size_t catch_patterns_bytes = 0;
 };
 
 JsMangleCoverage analyze_js_mangle_coverage(const std::vector<JsToken>& tokens,
@@ -1383,24 +1393,33 @@ JsMangleCoverage analyze_js_mangle_coverage(const std::vector<JsToken>& tokens,
     };
     for (const JsBinding& binding : graph.bindings) {
         const std::size_t unit = graph.containing_function[binding.scope];
-        if (!unit) { ++result.top_level; continue; }
+        const std::size_t binding_id = static_cast<std::size_t>(&binding - graph.bindings.data());
+        const std::size_t occurrences = binding.declaration_tokens.size() +
+            graph.references_by_binding[binding_id].size();
+        const std::size_t potential_bytes = binding.name.size() > 1
+            ? (binding.name.size() - 1) * occurrences : 0;
+        if (!unit) { ++result.top_level; result.top_level_bytes += potential_bytes; continue; }
         const unsigned barrier = barriers[unit];
         if (barrier) {
-            if (barrier & 1) ++result.dynamic_scope;
-            if (barrier & 2) ++result.arguments;
-            if (barrier & 4) ++result.classes;
-            if (barrier & 8) ++result.concise_arrows;
-            if (barrier & 16) ++result.methods;
-            if (barrier & 32) ++result.catch_patterns;
+            if (barrier & 1) { ++result.dynamic_scope; result.dynamic_scope_bytes += potential_bytes; }
+            else if (barrier & 2) { ++result.arguments; result.arguments_bytes += potential_bytes; }
+            else if (barrier & 4) { ++result.classes; result.classes_bytes += potential_bytes; }
+            else if (barrier & 8) { ++result.concise_arrows; result.concise_arrows_bytes += potential_bytes; }
+            else if (barrier & 16) { ++result.methods; result.methods_bytes += potential_bytes; }
+            else { ++result.catch_patterns; result.catch_patterns_bytes += potential_bytes; }
             continue;
         }
         const bool supported = binding.kind == JsBindingKind::Parameter ||
             binding.kind == JsBindingKind::Var || binding.kind == JsBindingKind::Lexical ||
             binding.kind == JsBindingKind::Catch;
-        if (!supported || reserved.count(binding.name)) { ++result.unsupported_kind; continue; }
-        if (counts[binding.scope][binding.name] != 1) { ++result.duplicate; continue; }
+        if (!supported || reserved.count(binding.name)) {
+            ++result.unsupported_kind; result.unsupported_kind_bytes += potential_bytes; continue;
+        }
+        if (counts[binding.scope][binding.name] != 1) {
+            ++result.duplicate; result.duplicate_bytes += potential_bytes; continue;
+        }
         if (binding.name.size() <= 2) { ++result.short_names; continue; }
-        ++result.eligible;
+        ++result.eligible; result.eligible_bytes += potential_bytes;
     }
     return result;
 }
@@ -1421,7 +1440,17 @@ std::string build_js_mangle_report(const std::vector<JsToken>& tokens,
         "\tclass\t" + std::to_string(value.classes) +
         "\tconcise-arrow\t" + std::to_string(value.concise_arrows) +
         "\tmethod\t" + std::to_string(value.methods) +
-        "\tcatch-pattern\t" + std::to_string(value.catch_patterns);
+        "\tcatch-pattern\t" + std::to_string(value.catch_patterns) +
+        "\teligible-bytes\t" + std::to_string(value.eligible_bytes) +
+        "\ttop-level-bytes\t" + std::to_string(value.top_level_bytes) +
+        "\tunsupported-kind-bytes\t" + std::to_string(value.unsupported_kind_bytes) +
+        "\tduplicate-bytes\t" + std::to_string(value.duplicate_bytes) +
+        "\tdynamic-bytes\t" + std::to_string(value.dynamic_scope_bytes) +
+        "\targuments-bytes\t" + std::to_string(value.arguments_bytes) +
+        "\tclass-bytes\t" + std::to_string(value.classes_bytes) +
+        "\tconcise-arrow-bytes\t" + std::to_string(value.concise_arrows_bytes) +
+        "\tmethod-bytes\t" + std::to_string(value.methods_bytes) +
+        "\tcatch-pattern-bytes\t" + std::to_string(value.catch_patterns_bytes);
 }
 
 JsNameAlphabet build_js_frequency_alphabet(const std::vector<JsToken>& tokens,
