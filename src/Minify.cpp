@@ -548,17 +548,17 @@ void resolve_js_references(JsScopeGraph& graph, const std::vector<JsToken>& toke
     }
 }
 
-struct JsPrintResult { std::string text; bool ordered = true; };
 std::string js_short_name(std::size_t index);
 std::string js_short_name(std::size_t index, const std::string& first,
                           const std::string& continuation);
-JsPrintResult print_js_tokens_losslessly(const std::string& source, const std::vector<JsToken>& tokens) {
-    JsPrintResult result; result.text.reserve(source.size()); std::size_t cursor = 0;
+bool js_tokens_are_ordered(const std::string& source, const std::vector<JsToken>& tokens) {
+    std::size_t cursor = 0;
     for (const auto& token : tokens) {
-        if (token.begin < cursor || token.end < token.begin || token.end > source.size()) { result.ordered=false; result.text=source; return result; }
-        result.text.append(source,cursor,token.begin-cursor); result.text.append(source,token.begin,token.end-token.begin); cursor=token.end;
+        if (token.begin < cursor || token.end < token.begin || token.end > source.size())
+            return false;
+        cursor = token.end;
     }
-    result.text.append(source,cursor,source.size()-cursor); return result;
+    return true;
 }
 
 std::vector<JsReplacement> plan_safe_js_parameter_renaming(
@@ -2261,8 +2261,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
         JsScopeGraph scopes = build_js_scope_graph(tokens);
         resolve_js_references(scopes, tokens, syntax);
         const JsSemanticFacts facts = build_js_semantic_facts(tokens);
-        [[maybe_unused]] const JsPrintResult printed = print_js_tokens_losslessly(input, tokens);
-        if (structured_rewrite && syntax.balanced && printed.ordered && printed.text == input) {
+        const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
+        if (structured_rewrite && syntax.balanced && ordered_tokens) {
             const auto pass_enabled = [&](JavaScriptOptimizationPass pass) {
                 return !disabled_passes || std::find(disabled_passes->begin(),
                     disabled_passes->end(), pass) == disabled_passes->end();
