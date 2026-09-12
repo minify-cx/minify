@@ -429,9 +429,9 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
             } else if (pending == JsScopeKind::Catch && index && tokens[index - 1].text == ")") {
                 std::size_t depth = 1, open = index - 1;
                 while (open && depth) { --open; if (tokens[open].text == ")") ++depth; else if (tokens[open].text == "(") --depth; }
-                if (!depth) for (std::size_t p = open + 1; p + 1 < index; ++p)
-                    if (tokens[p].kind == JsTokenKind::Identifier)
-                        add_binding(scopes.back(), p, JsBindingKind::Catch);
+                if (!depth && open + 2 == index &&
+                    tokens[open + 1].kind == JsTokenKind::Identifier)
+                    add_binding(scopes.back(), open + 1, JsBindingKind::Catch);
             }
             pending = JsScopeKind::Block;
         } else if (text == "}" && !brace_creates_scope.empty()) {
@@ -612,6 +612,10 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             if (tokens[i].text == "arguments" || tokens[i].text == "class" ||
                 (tokens[i].text == "=" && i + 1 < function.last_token && tokens[i + 1].text == ">"))
                 unsafe = true;
+            if (tokens[i].text == "catch" && i + 2 < function.last_token &&
+                tokens[i + 1].text == "(" &&
+                (tokens[i + 2].text == "{" || tokens[i + 2].text == "["))
+                unsafe = true;
             // A block following a non-control parameter list is an object/class
             // method body, which the lightweight scope builder cannot yet model.
             if (tokens[i].text == "{" && tokens[i].brace_kind == JsBraceKind::Block && i &&
@@ -636,8 +640,6 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
-                                   (candidate.kind == JsBindingKind::Function &&
-                                    graph.scopes[candidate.scope].kind == JsScopeKind::Function) ||
                                    candidate.kind == JsBindingKind::Catch;
             const bool captured = std::any_of(graph.references_by_binding[binding].begin(),
                 graph.references_by_binding[binding].end(), [&](std::size_t reference) {
