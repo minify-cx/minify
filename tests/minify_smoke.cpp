@@ -719,7 +719,7 @@ int main() {
     expect(minify::javascript("function keep(longName){return {...longName};}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep($){return{...$}}","structured object spread reference renaming");
     expect(minify::javascript("const total=(longValue)=>{const doubledValue=longValue*2;return doubledValue;};",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"const total=($)=>{const _=$*2;return _}","structured block arrow scope safety");
+    eq(structured,"const total=$=>{const _=$*2;return _}","structured block arrow scope safety");
     expect(minify::javascript("const total=(longValue)=>longValue*2;",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const total=$=>$*2","structured concise arrow parameter renaming");
     expect(minify::javascript("const total=longValue=>({longValue,externalValue});",structured,err,{minify::OptimizationLevel::Structured}),err);
@@ -751,7 +751,7 @@ int main() {
     expect(minify::javascript("function outer(longValue){return function(innerValue){return function(deepValue){return longValue+innerValue+deepValue}}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function outer($){return function(_){return function(a){return $+_+a}}}","structured transitive captured binding allocation");
     expect(minify::javascript("function outer(longValue){const callback=(innerValue)=>{return longValue+innerValue};return callback}",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"function outer($){const _=(_)=>{return $+_};return _}","structured coordinated block-arrow mangling");
+    eq(structured,"function outer($){const _=_=>{return $+_};return _}","structured coordinated block-arrow mangling");
     std::string original_signature, renamed_signature;
     expect(minify::javascript_binding_signature("function total(longValue){return longValue+externalValue}",original_signature,err),err);
     expect(minify::javascript_binding_signature("function total($){return $+externalValue}",renamed_signature,err),err);

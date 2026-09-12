@@ -1626,6 +1626,22 @@ std::vector<JsReplacement> plan_js_concise_arrow_renaming(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_single_arrow_parentheses(
+    const std::vector<JsToken>& tokens) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t open = 0; open + 4 < tokens.size(); ++open) {
+        if (tokens[open].text != "(" ||
+            tokens[open + 1].kind != JsTokenKind::Identifier ||
+            tokens[open + 2].text != ")" || tokens[open + 3].text != "=" ||
+            tokens[open + 4].text != ">" || open + 5 >= tokens.size() ||
+            tokens[open + 5].text != "{") continue;
+        replacements.push_back({tokens[open].begin, tokens[open].end, ""});
+        replacements.push_back({tokens[open + 2].begin, tokens[open + 2].end, ""});
+        open += 4;
+    }
+    return replacements;
+}
+
 [[maybe_unused]] std::vector<JsReplacement> plan_js_simple_destructuring_parameters(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
@@ -3501,6 +3517,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
             if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
                 auto concise = plan_js_concise_arrow_renaming(tokens, syntax);
                 replacements.insert(replacements.end(), concise.begin(), concise.end());
+                auto arrow_parentheses = plan_js_single_arrow_parentheses(tokens);
+                replacements.insert(replacements.end(), arrow_parentheses.begin(),
+                                    arrow_parentheses.end());
             }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));
