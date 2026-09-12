@@ -206,6 +206,11 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
         else if (token.text == "true" || token.kind == JsTokenKind::Regex ||
                  token.kind == JsTokenKind::String || token.kind == JsTokenKind::Template)
             facts.truthiness[index] = JsTruthiness::Truthy;
+        else if (token.kind == JsTokenKind::Number) {
+            const std::string_view number = token.text;
+            facts.truthiness[index] = number == "0" || number == "0n" ||
+                number == "0.0" ? JsTruthiness::Falsy : JsTruthiness::Truthy;
+        }
 
         if (facts.values[index] != JsValueKind::Unknown || token.kind == JsTokenKind::Regex ||
             token.kind == JsTokenKind::Template)
@@ -1051,6 +1056,10 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
         if (summary.iterates) signature += "I;";
         if (summary.suspends) signature += "S;";
         if (summary.terminates_abruptly) signature += "X;";
+        if (facts.values[token] != JsValueKind::Unknown)
+            signature += "V" + std::to_string(static_cast<unsigned>(facts.values[token])) + ";";
+        if (facts.truthiness[token] != JsTruthiness::Unknown)
+            signature += "Q" + std::to_string(static_cast<unsigned>(facts.truthiness[token])) + ";";
     }
     return signature;
 }
