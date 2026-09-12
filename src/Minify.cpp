@@ -148,6 +148,7 @@ enum class JsTruthiness { Unknown, Falsy, Truthy };
 enum class JsInvocationKind { None, Call, OptionalCall, Construct };
 enum class JsConversionKind { None, ToPrimitive, ToBoolean, ToNumber, ToNumeric,
                               ToString, ToPropertyKey, Compare };
+enum class JsPropertyEffectKind { None, Read, Write, Delete, PrivateCheck, Computed, Optional };
 enum class JsEffectKind { Pure, Read, Write, CallOrConstruct, MayThrow };
 enum class JsCompletionKind { Normal, Return, Throw, Break, Continue };
 struct JsEffectSummary {
@@ -184,6 +185,7 @@ struct JsSemanticFacts {
     std::vector<JsTruthiness> truthiness;
     std::vector<JsInvocationKind> invocations;
     std::vector<JsConversionKind> conversions;
+    std::vector<JsPropertyEffectKind> property_effects;
 };
 
 JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
@@ -195,6 +197,7 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
     facts.truthiness.resize(tokens.size(), JsTruthiness::Unknown);
     facts.invocations.resize(tokens.size(), JsInvocationKind::None);
     facts.conversions.resize(tokens.size(), JsConversionKind::None);
+    facts.property_effects.resize(tokens.size(), JsPropertyEffectKind::None);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const JsToken& token = tokens[index];
         if (token.kind == JsTokenKind::Number)
@@ -278,6 +281,11 @@ JsSemanticFacts build_js_semantic_facts(const std::vector<JsToken>& tokens) {
             facts.conversions[index] = JsConversionKind::Compare;
         else if (token.text == "[" || token.text == ".")
             facts.conversions[index] = JsConversionKind::ToPropertyKey;
+        if (token.text == ".") facts.property_effects[index] = JsPropertyEffectKind::Read;
+        else if (token.text == "[") facts.property_effects[index] = JsPropertyEffectKind::Computed;
+        else if (token.text == "?.") facts.property_effects[index] = JsPropertyEffectKind::Optional;
+        else if (token.text == "delete") facts.property_effects[index] = JsPropertyEffectKind::Delete;
+        else if (token.text == "#") facts.property_effects[index] = JsPropertyEffectKind::PrivateCheck;
     }
     return facts;
 }
@@ -1077,6 +1085,8 @@ std::string build_js_effect_signature(const std::vector<JsToken>& tokens,
             signature += "Q" + std::to_string(static_cast<unsigned>(facts.truthiness[token])) + ";";
         if (facts.conversions[token] != JsConversionKind::None)
             signature += "Z" + std::to_string(static_cast<unsigned>(facts.conversions[token])) + ";";
+        if (facts.property_effects[token] != JsPropertyEffectKind::None)
+            signature += "Y" + std::to_string(static_cast<unsigned>(facts.property_effects[token])) + ";";
     }
     return signature;
 }
