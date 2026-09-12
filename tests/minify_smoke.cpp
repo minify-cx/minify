@@ -744,6 +744,8 @@ int main() {
     eq(structured,"function keep($){return{value:call(0,$,2)}}","structured call argument is not shorthand");
     expect(minify::javascript("function keep(longName){return eval('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return eval('longName')}","structured dynamic lookup exclusion");
+    expect(minify::javascript("function keep(longName){return (eval)('longName');}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function keep(longName){return(eval)('longName')}","structured parenthesized direct eval exclusion");
     expect(minify::javascript("function keep(longName){return function(){return eval('longName')}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function keep(longName){return function(){return eval('longName')}}","structured descendant dynamic lookup barrier");
     expect(minify::javascript("function outer(longValue){return function(innerValue){return function(deepValue){return longValue+innerValue+deepValue}}}",structured,err,{minify::OptimizationLevel::Structured}),err);

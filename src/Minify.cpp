@@ -786,9 +786,13 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
         if (text == "function") pending = JsScopeKind::Function;
         else if (text == "class") pending = JsScopeKind::Class;
         else if (text == "catch") pending = JsScopeKind::Catch;
-        const bool direct_eval = text == "eval" && index + 1 < tokens.size() &&
-                                 tokens[index + 1].text == "(" &&
-                                 (index == 0 || tokens[index - 1].text != ".");
+        const bool bare_direct_eval = text == "eval" && index + 1 < tokens.size() &&
+                                      tokens[index + 1].text == "(" &&
+                                      (index == 0 || tokens[index - 1].text != ".");
+        const bool parenthesized_direct_eval = text == "eval" && index &&
+            tokens[index - 1].text == "(" && index + 2 < tokens.size() &&
+            tokens[index + 1].text == ")" && tokens[index + 2].text == "(";
+        const bool direct_eval = bare_direct_eval || parenthesized_direct_eval;
         if (direct_eval || text == "with") mark_dynamic_function(scopes.back());
         if (text == "{") {
             const bool parameter_pattern = pending == JsScopeKind::Function && index &&
