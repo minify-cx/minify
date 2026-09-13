@@ -3658,7 +3658,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               bool mangle_top_level = false,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
-                              JsDiagnostics* diagnostics = nullptr) {
+                              JsDiagnostics* diagnostics = nullptr,
+                              unsigned aggressive_round = 0) {
     output.clear();
     output.reserve(input.size());
 
@@ -4143,9 +4144,11 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                 return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                          aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
-                                         mangle_top_level, property_allowlist, disabled_passes);
+                                         mangle_top_level, property_allowlist, disabled_passes,
+                                         nullptr, aggressive_round);
             }
-            if (aggressive_rewrite) {
+            constexpr unsigned aggressive_round_budget = 7;
+            if (aggressive_rewrite && aggressive_round < aggressive_round_budget) {
                 auto append = [&](std::vector<JsReplacement> more) {
                     replacements.insert(replacements.end(), more.begin(), more.end());
                 };
@@ -4179,7 +4182,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                     return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                              true, true, true, mangle_top_level, property_allowlist,
-                                             disabled_passes);
+                                             disabled_passes, nullptr, aggressive_round + 1);
                 }
             }
         }
