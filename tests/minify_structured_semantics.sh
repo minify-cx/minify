@@ -29,4 +29,5 @@ run_case ternary_in_object 'function offsets(xPadding,yPadding,crossAxis){return
 run_case comma_shorthand 'function pair(resolve,reject){return {resolve,reject}}console.log(Object.keys(pair(1,2)).join(","));'
 run_case ternary 'function choose(longName,otherName){return longName?otherName:longName}console.log(choose(0,7));'
 run_case contextual 'function* outer(){return (function keep(yield){return yield})(4)}console.log(outer().next().value);'
-echo "Structured JavaScript semantic differential test passed (18 cases)"
+run_case typescript_named_export 'var ts={};(function(ts){function createBinaryExpressionTrampoline(){return 7}ts.createBinaryExpressionTrampoline=createBinaryExpressionTrampoline})(ts);console.log(ts.createBinaryExpressionTrampoline());'
+echo "Structured JavaScript semantic differential test passed (19 cases)"
