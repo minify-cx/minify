@@ -1661,12 +1661,16 @@ JsNameAlphabet build_js_frequency_alphabet(const std::vector<JsToken>& tokens,
 
 bool js_identifier_is_shorthand(const std::vector<JsToken>& tokens,
                                 const JsConcreteSyntax& syntax,
-                                std::size_t token) {
+                                std::size_t token,
+                                bool binding_declaration = false) {
     if (token >= syntax.identifier_roles.size()) return false;
     if (syntax.identifier_roles[token] == JsIdentifierRole::ShorthandProperty) return true;
     if (!token || token + 1 >= tokens.size() ||
         (tokens[token - 1].text != "{" && tokens[token - 1].text != ",") ||
         (tokens[token + 1].text != "}" && tokens[token + 1].text != ",")) return false;
+    if (token < syntax.binding_patterns.size() &&
+        syntax.binding_patterns[token] != JsBindingPatternKind::None)
+        return true;
     unsigned parens = 0, brackets = 0, braces = 0;
     for (std::size_t cursor = token; cursor-- > 0;) {
         const std::string_view text = tokens[cursor].text;
@@ -1681,9 +1685,17 @@ bool js_identifier_is_shorthand(const std::vector<JsToken>& tokens,
             else if (!parens && !braces) return false;
         } else if (text == "{") {
             if (braces) --braces;
-            else if (!parens && !brackets)
+            else if (!parens && !brackets) {
+                if (binding_declaration) {
+                    for (std::size_t between = cursor + 1; between < token; ++between)
+                        if (tokens[between].text == "var" || tokens[between].text == "let" ||
+                            tokens[between].text == "const" || tokens[between].text == "function" ||
+                            tokens[between].text == ";") return false;
+                    return true;
+                }
                 return tokens[cursor].brace_kind != JsBraceKind::Block ||
                        (cursor && tokens[cursor - 1].text == "(");
+            }
         }
     }
     return false;
@@ -1693,6 +1705,21 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax,
     const JsScopeGraph& graph, bool mangle_top_level = false) {
     std::vector<JsReplacement> replacements;
+    // For-await heads need a dedicated lexical/destructuring scope model.
+    // Until then, fail closed for the whole compilation unit rather than let
+    // a synthetic nested unit bypass the containing function's barrier.
+    for (std::size_t token = 0; token + 1 < tokens.size(); ++token)
+        if (tokens[token].text == "for" && tokens[token + 1].text == "await")
+            return replacements;
+    // Dynamic import and source-phase import introduce contextual grammar that
+    // the lightweight scope builder does not model yet. In particular, a
+    // nested arrow used as a promise callback can otherwise have its parameter
+    // declaration renamed while a reference is classified outside that scope.
+    // Keep compression enabled, but fail closed for identifier mangling.
+    for (std::size_t token = 0; token + 1 < tokens.size(); ++token)
+        if (tokens[token].text == "import" &&
+            (tokens[token + 1].text == "(" || tokens[token + 1].text == "."))
+            return replacements;
     static const std::unordered_set<std::string_view> reserved = {
         "await","break","case","catch","class","const","continue","debugger",
         "default","delete","do","else","enum","eval","export","extends","false",
@@ -1729,11 +1756,57 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         const std::size_t unit = unit_of_scope[graph.bindings[binding].scope];
         if (unit < graph.scopes.size()) bindings_by_unit[unit].push_back(binding);
     }
+    std::vector<std::unordered_map<std::string_view, std::size_t>> unit_name_counts(graph.scopes.size());
+    for (std::size_t unit = 0; unit < bindings_by_unit.size(); ++unit)
+        for (std::size_t binding : bindings_by_unit[unit])
+            ++unit_name_counts[unit][graph.bindings[binding].name];
     for (std::size_t reference = 0; reference < graph.references.size(); ++reference) {
         const std::size_t unit = unit_of_scope[graph.references[reference].scope];
         if (unit < graph.scopes.size()) references_by_unit[unit].push_back(reference);
     }
     const auto nested_name_barriers = build_js_nested_name_barriers(tokens, graph);
+    std::unordered_set<std::string_view> unresolved_names;
+    for (std::size_t reference : graph.unresolved_references)
+        if (reference < graph.references.size() &&
+            graph.references[reference].token < tokens.size())
+            unresolved_names.insert(tokens[graph.references[reference].token].text);
+    std::unordered_set<std::string_view> external_top_level_names;
+    if (!mangle_top_level)
+        for (std::size_t token = 0; token + 1 < tokens.size(); ++token) {
+            if (graph.scope_at_token[token] != 0 ||
+                (tokens[token].text != "function" && tokens[token].text != "class")) continue;
+            const bool declaration_position = token == 0 || tokens[token - 1].text == ";" ||
+                tokens[token - 1].text == "}" || tokens[token - 1].text == "export" ||
+                tokens[token - 1].text == "default" ||
+                (tokens[token - 1].text == "async" &&
+                 (token == 1 || tokens[token - 2].text == ";" || tokens[token - 2].text == "}"));
+            if (!declaration_position) continue;
+            std::size_t name = token + 1;
+            if (tokens[name].text == "*" && name + 1 < tokens.size()) ++name;
+            if (tokens[name].kind == JsTokenKind::Identifier)
+                external_top_level_names.insert(tokens[name].text);
+        }
+    std::vector<bool> class_heritage_tokens(tokens.size(), false);
+    for (std::size_t start = 0; start < tokens.size(); ++start) {
+        if (tokens[start].text != "class") continue;
+        bool heritage = false;
+        unsigned parens = 0, brackets = 0, braces = 0;
+        for (std::size_t token = start + 1; token < tokens.size(); ++token) {
+            const std::string_view text = tokens[token].text;
+            if (!parens && !brackets && !braces && text == "extends") {
+                heritage = true;
+                continue;
+            }
+            if (!parens && !brackets && !braces && text == "{") break;
+            if (heritage) class_heritage_tokens[token] = true;
+            if (text == "(") ++parens;
+            else if (text == ")" && parens) --parens;
+            else if (text == "[") ++brackets;
+            else if (text == "]" && brackets) --brackets;
+            else if (text == "{") ++braces;
+            else if (text == "}" && braces) --braces;
+        }
+    }
     std::vector<std::string> coordinated_names(graph.bindings.size());
     for (std::size_t unit = 0; unit < graph.scopes.size(); ++unit) {
         const JsScope& function = graph.scopes[unit];
@@ -1744,7 +1817,13 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
 
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         bool uses_arguments = false;
+        unsigned arrow_count = 0;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
+            if (tokens[i].text == "=" && i + 1 < function.last_token &&
+                tokens[i + 1].text == ">" && ++arrow_count > 1)
+                unsafe = true;
+            if (tokens[i].text == "for" && i + 1 < function.last_token &&
+                tokens[i + 1].text == "await") unsafe = true;
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;
             if (tokens[i].text == "arguments") uses_arguments = true;
             // A block following a non-control parameter list is an object/class
@@ -1768,13 +1847,62 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         std::vector<std::size_t> eligible;
         std::unordered_set<std::string_view> occupied = reserved;
         occupied.insert(nested_name_barriers[unit].begin(), nested_name_barriers[unit].end());
-        for (std::size_t captured : graph.captures_by_function[unit])
+        // Derive occupied captured names directly from the unit's resolved
+        // references as well as the convenience capture inventory. Synthetic
+        // arrow scopes can make the latter incomplete even though resolution
+        // itself correctly points at the outer binding.
+        for (std::size_t reference_id : references_by_unit[unit]) {
+            if (reference_id >= graph.references.size()) continue;
+            const std::size_t binding = graph.references[reference_id].binding;
+            if (binding >= graph.bindings.size() ||
+                unit_of_scope[graph.bindings[binding].scope] == unit) continue;
+            if (binding < coordinated_names.size() && !coordinated_names[binding].empty())
+                occupied.insert(coordinated_names[binding]);
+            else
+                occupied.insert(graph.bindings[binding].name);
+        }
+        // A concise-arrow scope can sit between two brace-backed function
+        // units. Until capture edges through every such synthetic scope are
+        // complete, reserve all ancestor-unit spellings in the child. This
+        // prevents a child local from colliding with an outer binding that is
+        // referenced by a deeper callback.
+        const std::size_t unit_begin = graph.scopes[unit].first_token;
+        const bool arrow_unit = unit_begin >= 3 &&
+            tokens[unit_begin - 1].text == ">" && tokens[unit_begin - 2].text == "=";
+        if (arrow_unit)
+            for (std::size_t ancestor = 0; ancestor < graph.bindings.size(); ++ancestor) {
+                const std::size_t scope = graph.bindings[ancestor].scope;
+                if (scope >= graph.scopes.size() || scope == unit ||
+                    graph.scopes[scope].first_token > function.first_token ||
+                    graph.scopes[scope].last_token < function.last_token) continue;
+                if (ancestor < coordinated_names.size() &&
+                    !coordinated_names[ancestor].empty())
+                    occupied.insert(coordinated_names[ancestor]);
+                else
+                    occupied.insert(graph.bindings[ancestor].name);
+            }
+        for (std::size_t captured : graph.captures_by_function[unit]) {
+            if (captured >= graph.bindings.size()) continue;
             if (captured < coordinated_names.size() && !coordinated_names[captured].empty())
                 occupied.insert(coordinated_names[captured]);
+            else
+                occupied.insert(graph.bindings[captured].name);
+        }
         for (std::size_t binding : bindings_by_unit[unit]) {
             const JsBinding& candidate = graph.bindings[binding];
             bool referenced_from_opaque_class = false;
+            for (std::size_t declaration : candidate.declaration_tokens)
+                if (declaration < class_heritage_tokens.size() &&
+                    class_heritage_tokens[declaration]) {
+                    referenced_from_opaque_class = true;
+                    break;
+                }
             for (std::size_t reference_id : graph.references_by_binding[binding]) {
+                if (graph.references[reference_id].token < class_heritage_tokens.size() &&
+                    class_heritage_tokens[graph.references[reference_id].token]) {
+                    referenced_from_opaque_class = true;
+                    break;
+                }
                 std::size_t scope = graph.references[reference_id].scope;
                 while (scope != unit && scope) {
                     if (graph.scopes[scope].kind == JsScopeKind::Class) {
@@ -1794,8 +1922,17 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
             const bool arguments_alias = uses_arguments &&
                                          candidate.kind == JsBindingKind::Parameter;
+            const bool async_arrow_prefix = candidate.name == "async" &&
+                candidate.token + 1 < tokens.size() && tokens[candidate.token + 1].text == "(" &&
+                syntax.matching_token[candidate.token + 1] < tokens.size() &&
+                syntax.matching_token[candidate.token + 1] + 2 < tokens.size() &&
+                tokens[syntax.matching_token[candidate.token + 1] + 1].text == "=" &&
+                tokens[syntax.matching_token[candidate.token + 1] + 2].text == ">";
             if (supported && duplicates == 1 && !reserved.count(candidate.name) &&
-                candidate.name.size() > 2 && !referenced_from_opaque_class && !arguments_alias)
+                candidate.name.size() > 2 && !referenced_from_opaque_class && !arguments_alias &&
+                !async_arrow_prefix && !unresolved_names.count(candidate.name) &&
+                !external_top_level_names.count(candidate.name) &&
+                unit_name_counts[unit][candidate.name] == 1)
                 eligible.push_back(binding);
             else
                 occupied.insert(candidate.name);
@@ -1866,7 +2003,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             if (new_size >= old_size) { occupied.insert(binding.name); continue; }
             for (std::size_t token : binding.declaration_tokens) {
                 const bool object_pattern_shorthand =
-                    js_identifier_is_shorthand(tokens, syntax, token);
+                    js_identifier_is_shorthand(tokens, syntax, token, true);
                 replacements.push_back({tokens[token].begin, tokens[token].end,
                     object_pattern_shorthand ? std::string(binding.name) + ":" + replacement
                                              : replacement});
@@ -2011,7 +2148,7 @@ std::vector<JsReplacement> plan_js_redundant_primary_parentheses(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
     static const std::unordered_set<std::string_view> safe_before = {
-        "return", "throw", "yield", "await", "case", "=", ",", ":", "?",
+        "return", "throw", "case", "=", ",", ":", "?",
         "[", "{", "+", "-", "*", "/", "%", "**", "&&", "||", "??",
         "&", "|", "^", "!", "~", "<", ">", "<=", ">=", "==", "!=",
         "===", "!==", "=>", "in", "instanceof", "typeof", "void", "delete"
@@ -2021,6 +2158,10 @@ std::vector<JsReplacement> plan_js_redundant_primary_parentheses(
         "**", "&&", "||", "??", "&", "|", "^", "<", ">", "<=", ">=",
         "==", "!=", "===", "!==", "in", "instanceof"
     };
+    static const std::unordered_set<std::string_view> word_before = {
+        "return", "throw", "case", "in", "instanceof",
+        "typeof", "void", "delete"
+    };
     for (std::size_t open = 1; open + 2 < tokens.size(); ++open) {
         if (tokens[open].text != "(" || syntax.matching_token[open] != open + 2)
             continue;
@@ -2028,14 +2169,22 @@ std::vector<JsReplacement> plan_js_redundant_primary_parentheses(
         if (value.kind != JsTokenKind::Identifier && value.kind != JsTokenKind::Number &&
             value.kind != JsTokenKind::String && value.kind != JsTokenKind::Regex &&
             value.kind != JsTokenKind::Template) continue;
-        if (value.text == "eval") continue;
+        if (value.text == "eval" || value.text == "yield" || value.text == "await" ||
+            value.text == "async") continue;
         if (!safe_before.count(tokens[open - 1].text)) continue;
+        if (open >= 2 && tokens[open - 2].text == "." &&
+            (tokens[open - 1].text == "return" || tokens[open - 1].text == "throw" ||
+             tokens[open - 1].text == "yield" || tokens[open - 1].text == "await" ||
+             tokens[open - 1].text == "case" || tokens[open - 1].text == "typeof" ||
+             tokens[open - 1].text == "void" || tokens[open - 1].text == "delete"))
+            continue;
         const std::size_t close = open + 2;
         if (close + 1 < tokens.size() && !safe_after.count(tokens[close + 1].text))
             continue;
         if (value.kind == JsTokenKind::Number && close + 1 < tokens.size() &&
             tokens[close + 1].text == ".") continue;
-        replacements.push_back({tokens[open].begin, tokens[open].end, ""});
+        replacements.push_back({tokens[open].begin, tokens[open].end,
+                                word_before.count(tokens[open - 1].text) ? " " : ""});
         replacements.push_back({tokens[close].begin, tokens[close].end, ""});
         open = close;
     }
@@ -2050,6 +2199,8 @@ std::vector<JsReplacement> plan_js_redundant_shorthand_properties(
         if (tokens[key].kind != JsTokenKind::Identifier || tokens[key + 1].text != ":" ||
             tokens[value].kind != JsTokenKind::Identifier ||
             tokens[key].text != tokens[value].text) continue;
+        if (value + 1 >= tokens.size() ||
+            (tokens[value + 1].text != "," && tokens[value + 1].text != "}")) continue;
         if (key >= syntax.identifier_roles.size() ||
             syntax.identifier_roles[key] != JsIdentifierRole::PropertyKey) continue;
         const std::size_t node = syntax.node_at_token[key];
@@ -3861,7 +4012,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
             // must be interpreted like division rather than a regex statement.
             const bool expression_body =
                 (pending_class_brace && pending_class_expression) ||
-                (pending_function_brace && pending_function_expression);
+                (pending_function_brace && pending_function_expression) ||
+                pending_arrow_brace;
             block_braces.push_back(expression_body ? false : is_block);
             output.push_back(c);
             record_token(JsTokenKind::Punctuator, i, i + 1,
@@ -3951,9 +4103,14 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 auto primary_parentheses = plan_js_redundant_primary_parentheses(tokens, syntax);
                 replacements.insert(replacements.end(), primary_parentheses.begin(),
                                     primary_parentheses.end());
-                auto shorthand_properties = plan_js_redundant_shorthand_properties(tokens, syntax);
-                replacements.insert(replacements.end(), shorthand_properties.begin(),
-                                    shorthand_properties.end());
+                // Shorthand restoration can target the value token of a binding
+                // replacement. Apply it only after renaming has converged so the
+                // rewrite batch remains non-overlapping and fail-closed.
+                if (replacements.empty()) {
+                    auto shorthand_properties = plan_js_redundant_shorthand_properties(tokens, syntax);
+                    replacements.insert(replacements.end(), shorthand_properties.begin(),
+                                        shorthand_properties.end());
+                }
             }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));

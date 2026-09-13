@@ -9,6 +9,7 @@
 
 # Node semantic-test oracles (installed transiently by CI/release.yml)
 node_modules/
+/.deps/
 
 # Local diagnostics
 *.log

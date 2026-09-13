@@ -161,12 +161,18 @@ fractions to `.x`. Public property spelling, direct-eval barriers, opaque class
 references, loop empty statements, restricted-production newlines, and JSX
 boundaries retain explicit regressions.
 
-Local integration evidence is recorded in
-`docs/evidence/mangler-printer-checkpoint-14.md`. The complete local suite
-passed, including 15,459 generated JavaScript programs and 70,000 deterministic
-fuzz cases. The supplied archive omitted Test262, TypeScript, PostCSS, and the
-benchmark checkout, so those external gates and a fresh four-fixture size run
-remain mandatory before publishing comparative numbers.
+Integration evidence is recorded in
+`docs/evidence/mangler-printer-checkpoint-14.md`. After installing the omitted
+dependencies, the complete suite passed, including 15,459 generated JavaScript
+programs, 180 JSX programs, 17 PostCSS semantic fixtures, 36 real-bundle
+outputs, and 70,000 deterministic fuzz cases. Test262 revision
+`419d3e0a2273ba01a3bfcbec423f2801425b8e93` returned zero unexpected
+transformed failures after conservative barriers were added for grammar the
+lightweight resolver cannot yet certify. Inferred `.name` spelling tests still
+need an alpha-renaming-aware oracle, and generic-harness buffer-detachment
+failures remain runtime infrastructure limitations. Fresh conservative,
+structured, and aggressive four-fixture sizes are retained in the evidence
+document; D3 is now the largest remaining benchmark coverage gap.
 
 ## Competitive benchmark checkpoint (2026-08-18)
 
