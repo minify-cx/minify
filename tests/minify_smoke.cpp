@@ -852,7 +852,11 @@ int main() {
     expect(minify::javascript("while(condition);for(;;);do;while(condition);",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"while(condition);for(;;);do;while(condition);","semantic printer preserves loop empty statements");
     expect(minify::javascript("function f(){return\n{x:1}}\n/a/.test(x)",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"function f(){return\n{x:1}}\n/a/.test(x)","semantic printer preserves ASI and regex boundaries");
+    eq(structured,"function f(){return\n{x:1}}/a/.test(x)","semantic printer preserves restricted return boundary while removing declaration boundary");
+    expect(minify::javascript("if(flag){work()}\nelse{other()}\nfunction next(){return 1}\nnext()",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"if(flag){work()}else{other()}function next(){return 1}next()","structured printer removes block-boundary line terminators");
+    expect(minify::javascript("const callback=function(){}\n(callback)()",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const callback=function(){}\n(callback)()","structured printer preserves expression-body ASI boundary");
     expect(minify::javascript_effect_signature("async function f(xs){for(const x of xs)await new Box(x);return x}",original_signature,err),err);
     expect(original_signature.find("A;")!=std::string::npos&&original_signature.find("I;")!=std::string::npos&&original_signature.find("S;")!=std::string::npos&&original_signature.find("X;")!=std::string::npos,"composable effect lattice inventory");
     expect(minify::javascript_effect_signature("0;2;0n;'x';false",original_signature,err),err);

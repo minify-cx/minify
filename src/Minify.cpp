@@ -3450,9 +3450,15 @@ static bool minify_javascript(const std::string& input, std::string& output,
 
     auto emit_pending = [&](char next) {
         if (pending_newline) {
-            const JsLineTerminatorAction action = output.empty()
+            JsLineTerminatorAction action = output.empty()
                 ? JsLineTerminatorAction::PreserveAsiBoundary
                 : classify_js_line_terminator(output.back(), last_token, next);
+            // Once the structural scanner has proved that `}` closes a
+            // statement block (rather than an object, class expression or
+            // function expression), the following token cannot continue the
+            // preceding expression. The line terminator carries no ASI value.
+            if (structured_rewrite && last_token == "}block")
+                action = JsLineTerminatorAction::DropAfterDelimiter;
             // A terminator after an explicit semicolon, an opening brace, or a
             // opening brace cannot supply ASI semantics. A closing brace is
             // not enough: it may close an async/function/class expression,
