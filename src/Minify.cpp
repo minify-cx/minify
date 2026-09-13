@@ -68,6 +68,15 @@ std::string shorten_js_integer(const std::string& token) {
     return shortest_js_literal(token, {decimal});
 }
 
+std::string shorten_js_number(const std::string& token) {
+    const std::string integer = shorten_js_integer(token);
+    if (integer != token) return integer;
+    if (token.size() > 2 && token[0] == '0' && token[1] == '.' &&
+        ascii_digit(static_cast<unsigned char>(token[2])))
+        return token.substr(1);
+    return token;
+}
+
 std::string quote_js_string(const std::string& token, char target) {
     const char source = token.front();
     std::string result;
@@ -3672,7 +3681,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             }
             const std::string raw_number = input.substr(begin, i - begin);
             const std::string number = preserve_jsx_boundaries
-                ? raw_number : shorten_js_integer(raw_number);
+                ? raw_number : shorten_js_number(raw_number);
             emit_pending(number.front());
             output += number;
             record_token(JsTokenKind::Number, begin, i);

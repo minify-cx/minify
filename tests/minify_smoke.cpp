@@ -863,6 +863,10 @@ int main() {
     eq(structured,"function shorthand(errorCodes){eval('');return{errorCodes}}","structured printer restores redundant shorthand properties");
     expect(minify::javascript("function publicKey(longValue){return {publicName:longValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function publicKey($){return{publicName:$}}","structured shorthand restoration preserves public property spelling");
+    expect(minify::javascript("const half=0.5,tiny=0.0001,whole=10.5;",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const half=.5,tiny=.0001,whole=10.5","JavaScript decimal fraction literal shortening");
+    expect(minify::javascript("const quotes=\"can't\";",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"const quotes=\"can't\"","JavaScript string quote normalization remains costed");
     expect(minify::javascript("const callback=function(){}\n(callback)()",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const callback=function(){}\n(callback)()","structured printer preserves expression-body ASI boundary");
     expect(minify::javascript_effect_signature("async function f(xs){for(const x of xs)await new Box(x);return x}",original_signature,err),err);
