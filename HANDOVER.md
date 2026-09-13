@@ -150,6 +150,24 @@ tests/corpora, synchronization, release workflow, product boundaries, or durable
 lessons change. Correct and consolidate rather than appending a diary. A
 substantial checkpoint must review handover and production-roadmap impact.
 
+## 2026-09-13 — mangler/printer checkpoints 1–14
+
+Named function declarations, named function expressions, and conservatively
+eligible class declarations now participate in coordinated scope mangling.
+The printer additionally removes proven block-boundary line terminators,
+single-primary grouping in narrowly certified expression contexts, restores
+identical explicit object properties to shorthand, and shortens `0.x` decimal
+fractions to `.x`. Public property spelling, direct-eval barriers, opaque class
+references, loop empty statements, restricted-production newlines, and JSX
+boundaries retain explicit regressions.
+
+Local integration evidence is recorded in
+`docs/evidence/mangler-printer-checkpoint-14.md`. The complete local suite
+passed, including 15,459 generated JavaScript programs and 70,000 deterministic
+fuzz cases. The supplied archive omitted Test262, TypeScript, PostCSS, and the
+benchmark checkout, so those external gates and a fresh four-fixture size run
+remain mandatory before publishing comparative numbers.
+
 ## Competitive benchmark checkpoint (2026-08-18)
 
 Benchmarking now has three deliberately separate layers:
