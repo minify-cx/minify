@@ -808,6 +808,9 @@ int main() {
         expect(minify::javascript_binding_signature(item.second,renamed_signature,err),err);
         eq(renamed_signature,original_signature,"named function cross-boundary topology");
     }
+    expect(minify::javascript_binding_signature("function outer(){function helper(){return 1}return {publicHelper:helper,method:helper}.publicHelper}",original_signature,err),err);
+    expect(minify::javascript_binding_signature("function outer(){function $(){return 1}return {publicHelper:$,method:$}.publicHelper}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"function binding names remain distinct from observable property spelling");
     expect(minify::javascript_binding_signature("import {sourceName as localName} from 'pkg';export {localName as publicName};use(localName)",original_signature,err),err);
     expect(minify::javascript_binding_signature("import {sourceName as $} from 'pkg';export {$ as publicName};use($)",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"module signature resolves local aliases while preserving external names");
