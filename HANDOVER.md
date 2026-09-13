@@ -174,6 +174,32 @@ failures remain runtime infrastructure limitations. Fresh conservative,
 structured, and aggressive four-fixture sizes are retained in the evidence
 document; D3 is now the largest remaining benchmark coverage gap.
 
+## 2026-09-13 — D3 checkpoints 1–10
+
+The D3 gap was diagnosed rather than treated as a compressor problem. Compared
+with UglifyJS without compression, 87.2% of the raw byte gap was identifier
+spelling and another 12.0% was whitespace. A bundle-wide multi-arrow rejection
+inside D3's UMD factory accounted for about 40 KiB by itself. Function units
+are now allocated parent-first and the broad rejection is removed; D3
+structured output fell from 336,276 to 295,969 bytes while the complete
+selected-Test262 transformed-failure count remained zero.
+
+Large-input profiling then found millions of repeated allocation and live-range
+checks. Live ranges and scope depths are cached once, and generated replacement
+names use their candidate index to reach only bindings sharing that spelling.
+This reduced TypeScript structured from 5.761 s to 1.363–1.513 s and ECharts
+structured from 11.709 s to 0.625–0.630 s on the checkpoint host. Aggressive
+rewriting now has a seven-successful-round convergence guardrail: this retained
+byte-identical TypeScript and ECharts outputs while bringing their aggressive
+runs to 8.266 s and 3.296 s respectively.
+
+Integration evidence is in `docs/evidence/d3-checkpoint-10-integration.md`.
+All four diagnostic bundles complete in conservative, structured, and
+aggressive modes under the upstream ten-second timeout. The full product gate
+and all 48,011 selected tests at Test262 revision `419d3e0a…` passed, with
+39,744 runtime passes, 8,267 runtime-inapplicable cases, and zero minifier
+errors, minified timeouts, or semantic failures.
+
 ## Competitive benchmark checkpoint (2026-08-18)
 
 Benchmarking now has three deliberately separate layers:
