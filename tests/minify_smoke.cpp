@@ -747,7 +747,7 @@ int main() {
     expect(minify::javascript("function caught(){try{work()}catch({message:longMessage,code:{valueCode}}){return longMessage+valueCode}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function caught(){try{work()}catch({message:$,code:{valueCode:_}}){return $+_}}","structured recursive catch binding mangling");
     expect(minify::javascript("function outer(){function longHelper(longValue){return longValue}use(longHelper(1));return 2}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"function outer(){function longHelper($){return $}use(longHelper(1));return 2}","aggressive local function binding fallback");
+    eq(aggressive,"function outer(){function $($){return $}use($(1));return 2}","aggressive local function binding mangling");
     expect(minify::javascript("function make(){class LongClass{method(longValue){return longValue}static{var staticValue=1;use(staticValue)}}return new LongClass}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function make(){class LongClass{method($){return $}static{var $=1;use($)}}return new LongClass}","aggressive class fallback with method and static-block mangling");
     expect(minify::javascript("function outer(longValue){class Box{method(otherValue){return otherValue}}return longValue}",structured,err,{minify::OptimizationLevel::Structured}),err);
@@ -767,7 +767,7 @@ int main() {
     expect(minify::javascript("function blocks(flag){if(flag){let firstValue=1;use(firstValue)}else{let secondValue=2;use(secondValue)}}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function blocks($){if($){let _=1;use(_)}else{let _=2;use(_)}}","structured disjoint lexical name reuse");
     expect(minify::javascript("function siblings(){function first(longValue){return longValue}function second(otherValue){return otherValue}return first(1)+second(2)}",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"function siblings(){function first($){return $}function second($){return $}return first(1)+second(2)}","structured sibling function name reuse");
+    eq(structured,"function siblings(){function $($){return $}function _($){return $}return $(1)+_(2)}","structured sibling function mangling and local name reuse");
     expect(minify::javascript("function sequential(){var firstValue=1;use(firstValue);var secondValue=2;use(secondValue)}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function sequential(){var $=1;use($);var $=2;use($)}","structured straight-line var live-range reuse");
     expect(minify::javascript("function keep(longName){return {value:call(0,longName,2)};}",structured,err,{minify::OptimizationLevel::Structured}),err);
@@ -886,7 +886,7 @@ int main() {
     expect(original_signature.find("8>1;")!=std::string::npos&&original_signature.find("18>14;")!=std::string::npos,"CFG loop back edges");
     minify::Options structured_jsx;structured_jsx.optimization=minify::OptimizationLevel::Structured;structured_jsx.structured_jsx_expressions=true;
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
-    eq(structured,"const view=<Card value={(function total($){return $})(3)} />;","explicit structured JSX expression optimization");
+    eq(structured,"const view=<Card value={(function _($){return $})(3)} />;","explicit structured JSX expression optimization");
     expect(minify::javascript("const n=(200+30);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"const n=(230)","aggressive exact integer constant folding");
     expect(minify::javascript("const a=(100%7);const b=(255&15);const c=(8|3);const d=(7^3);const e=(1<2);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);

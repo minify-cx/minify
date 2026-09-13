@@ -1779,7 +1779,8 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
             const bool supported = candidate.kind == JsBindingKind::Parameter ||
                                    candidate.kind == JsBindingKind::Var ||
                                    candidate.kind == JsBindingKind::Lexical ||
-                                   candidate.kind == JsBindingKind::Catch;
+                                   candidate.kind == JsBindingKind::Catch ||
+                                   candidate.kind == JsBindingKind::Function;
             const std::size_t duplicates = binding_counts[candidate.scope][candidate.name];
             const bool arguments_alias = uses_arguments &&
                                          candidate.kind == JsBindingKind::Parameter;
