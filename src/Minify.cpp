@@ -466,6 +466,11 @@ JsGroupRole js_group_role(const std::vector<JsToken>& tokens, JsSyntaxKind kind,
 
 JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     JsConcreteSyntax syntax;
+    // At most one syntax node is created per token plus the root. Reserve the
+    // complete outer storage up front: large bundles otherwise repeatedly move
+    // both node records and child vectors while constructing the concrete tree.
+    syntax.nodes.reserve(tokens.size() + 1);
+    syntax.children.reserve(tokens.size() + 1);
     syntax.nodes.push_back({JsSyntaxKind::Root, JsGroupRole::Root, 0, tokens.size(), 0});
     syntax.children.emplace_back();
     syntax.node_at_token.resize(tokens.size(), 0);

@@ -87,6 +87,12 @@ generated non-JavaScript documents. Treat counts as checkpoint evidence, not a
 quality identity.
 
 The Makefile provides `test-fuzz`, `test-sanitize`, and `benchmark` targets.
+Performance-sensitive JavaScript changes must be benchmarked during development,
+not deferred to batch integration. Any real-bundle post-validation regression is
+an automatic rejection. Investigate aggregate throughput regressions above 5%,
+and reject regressions above 10% on a large representative fixture unless an
+explicitly measured trade-off is accepted. Compare against same-run controls when
+available; stale competitor timings are not an environmental control.
 Sanitizer claims remain workload-specific, and benchmark results remain host- and
 fixture-specific evidence rather than portable promises.
 
