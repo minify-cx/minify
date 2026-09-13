@@ -1808,7 +1808,33 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         }
     }
     std::vector<std::string> coordinated_names(graph.bindings.size());
-    for (std::size_t unit = 0; unit < graph.scopes.size(); ++unit) {
+    // Synthetic concise-arrow scopes are appended after brace-backed child
+    // scopes are discovered. Process function units by lexical depth rather
+    // than storage order so every parent's coordinated names exist before a
+    // child allocates from its namespace.
+    std::vector<std::size_t> unit_order;
+    unit_order.reserve(graph.scopes.size());
+    for (std::size_t unit = 0; unit < graph.scopes.size(); ++unit)
+        if ((unit == 0 && mangle_top_level &&
+             graph.scopes[unit].kind == JsScopeKind::Script) ||
+            graph.scopes[unit].kind == JsScopeKind::Function)
+            unit_order.push_back(unit);
+    const auto scope_depth = [&](std::size_t scope) {
+        std::size_t depth = 0;
+        while (scope && scope < graph.scopes.size()) {
+            ++depth;
+            scope = graph.scopes[scope].parent;
+        }
+        return depth;
+    };
+    std::stable_sort(unit_order.begin(), unit_order.end(),
+        [&](std::size_t left, std::size_t right) {
+            const std::size_t left_depth = scope_depth(left);
+            const std::size_t right_depth = scope_depth(right);
+            if (left_depth != right_depth) return left_depth < right_depth;
+            return graph.scopes[left].first_token < graph.scopes[right].first_token;
+        });
+    for (std::size_t unit : unit_order) {
         const JsScope& function = graph.scopes[unit];
         const bool top_level_script = unit == 0 && mangle_top_level &&
                                       function.kind == JsScopeKind::Script;
@@ -1817,11 +1843,7 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
 
         bool unsafe = unit_dynamic[unit] || function.descendant_dynamic_lookup;
         bool uses_arguments = false;
-        unsigned arrow_count = 0;
         for (std::size_t i = function.first_token; i < function.last_token && !unsafe; ++i) {
-            if (tokens[i].text == "=" && i + 1 < function.last_token &&
-                tokens[i + 1].text == ">" && ++arrow_count > 1)
-                unsafe = true;
             if (tokens[i].text == "for" && i + 1 < function.last_token &&
                 tokens[i + 1].text == "await") unsafe = true;
             if (unit_of_scope[graph.scope_at_token[i]] != unit) continue;

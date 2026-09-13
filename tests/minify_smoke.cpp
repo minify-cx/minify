@@ -870,7 +870,7 @@ int main() {
     expect(minify::javascript("function outer($){return function(longName){return $+longName}(2)}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function outer($){return function(_){return $+_}(2)}","nested allocator reserves unchanged captured spelling");
     expect(minify::javascript("const handler=log=>({get:()=>(...args)=>{const item=args[0];log.push(item)}})",structured,err,{minify::OptimizationLevel::Structured}),err);
-    eq(structured,"const handler=log=>({get:()=>(...$)=>{const _=$[0];log.push(_)}})","nested-arrow chains retain conservative outer binding barrier");
+    eq(structured,"const handler=$=>({get:()=>(..._)=>{const a=_[0];$.push(a)}})","nested-arrow chains allocate parents before children");
     expect(minify::javascript("function words(value){return(value)+typeof(Infinity)+void(value)}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function words($){return $+typeof Infinity+void $}","parenthesis removal preserves keyword token boundaries");
     expect(minify::javascript("const parsed=JSON.parse(text,function(key,value,{source}){return source||value})",structured,err,{minify::OptimizationLevel::Structured}),err);
