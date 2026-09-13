@@ -793,6 +793,9 @@ int main() {
     expect(minify::javascript_binding_signature("function outer(){function longHelper(value){return longHelper(value-1)}return longHelper(2)}",original_signature,err),err);
     expect(minify::javascript_binding_signature("function outer(){function $(value){return $(value-1)}return $(2)}",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"named function declaration binding topology");
+    expect(minify::javascript_binding_signature("function outer(){return second(2);function first(value){return second(value)}function second(value){return value?first(value-1):0}}",original_signature,err),err);
+    expect(minify::javascript_binding_signature("function outer(){return _(2);function $(value){return _(value)}function _(value){return value?$(value-1):0}}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"hoisted mutually recursive function topology");
     expect(minify::javascript_binding_signature("import {sourceName as localName} from 'pkg';export {localName as publicName};use(localName)",original_signature,err),err);
     expect(minify::javascript_binding_signature("import {sourceName as $} from 'pkg';export {$ as publicName};use($)",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"module signature resolves local aliases while preserving external names");
