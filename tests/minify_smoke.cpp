@@ -748,6 +748,8 @@ int main() {
     eq(structured,"function caught(){try{work()}catch({message:$,code:{valueCode:_}}){return $+_}}","structured recursive catch binding mangling");
     expect(minify::javascript("function outer(){function longHelper(longValue){return longValue}use(longHelper(1));return 2}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function outer(){function $($){return $}use($(1));return 2}","aggressive local function binding mangling");
+    expect(minify::javascript("function outer(){const factorial=function longFactorial(value){return value?value*longFactorial(value-1):1};return factorial(4)}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function outer(){const $=function _($){return $?$*_($-1):1};return $(4)}","structured named function expression mangling");
     expect(minify::javascript("function make(){class LongClass{method(longValue){return longValue}static{var staticValue=1;use(staticValue)}}return new LongClass}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function make(){class LongClass{method($){return $}static{var $=1;use($)}}return new LongClass}","aggressive class fallback with method and static-block mangling");
     expect(minify::javascript("function outer(longValue){class Box{method(otherValue){return otherValue}}return longValue}",structured,err,{minify::OptimizationLevel::Structured}),err);
