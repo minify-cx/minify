@@ -1464,6 +1464,25 @@ std::vector<std::unordered_set<std::string_view>> build_js_nested_name_barriers(
 
 struct JsBindingInterferenceGraph {
     const JsScopeGraph& graph;
+    std::vector<std::size_t> live_begin;
+    std::vector<std::size_t> live_end;
+
+    explicit JsBindingInterferenceGraph(const JsScopeGraph& value)
+        : graph(value), live_begin(value.bindings.size()), live_end(value.bindings.size()) {
+        for (std::size_t binding = 0; binding < value.bindings.size(); ++binding) {
+            std::size_t begin = value.bindings[binding].token;
+            std::size_t end = begin;
+            bool captured = false;
+            for (std::size_t reference : value.references_by_binding[binding]) {
+                begin = std::min(begin, value.references[reference].token);
+                end = std::max(end, value.references[reference].token);
+                captured = captured || value.references[reference].captured;
+            }
+            live_begin[binding] = captured ? 0 : begin;
+            live_end[binding] = captured ? std::numeric_limits<std::size_t>::max() : end;
+        }
+    }
+
     bool conflicts(std::size_t left, std::size_t right) const {
         const JsBinding& a = graph.bindings[left];
         const JsBinding& b = graph.bindings[right];
@@ -1483,20 +1502,7 @@ struct JsBindingInterferenceGraph {
             !graph.scopes[function].descendant_dynamic_lookup &&
             !graph.references_by_binding[left].empty() &&
             !graph.references_by_binding[right].empty()) {
-            auto live_range = [&](std::size_t binding) {
-                std::size_t begin = graph.bindings[binding].token;
-                std::size_t end = begin;
-                bool captured = false;
-                for (std::size_t reference : graph.references_by_binding[binding]) {
-                    begin = std::min(begin, graph.references[reference].token);
-                    end = std::max(end, graph.references[reference].token);
-                    captured = captured || graph.references[reference].captured;
-                }
-                return std::make_pair(captured ? 0 : begin,
-                    captured ? std::numeric_limits<std::size_t>::max() : end);
-            };
-            const auto left_live = live_range(left), right_live = live_range(right);
-            if (left_live.second < right_live.first || right_live.second < left_live.first)
+            if (live_end[left] < live_begin[right] || live_end[right] < live_begin[left])
                 return false;
         }
         return true;
@@ -1819,21 +1825,17 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
              graph.scopes[unit].kind == JsScopeKind::Script) ||
             graph.scopes[unit].kind == JsScopeKind::Function)
             unit_order.push_back(unit);
-    const auto scope_depth = [&](std::size_t scope) {
-        std::size_t depth = 0;
-        while (scope && scope < graph.scopes.size()) {
-            ++depth;
-            scope = graph.scopes[scope].parent;
-        }
-        return depth;
-    };
+    std::vector<std::size_t> scope_depth(graph.scopes.size(), 0);
+    for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope)
+        scope_depth[scope] = scope_depth[graph.scopes[scope].parent] + 1;
     std::stable_sort(unit_order.begin(), unit_order.end(),
         [&](std::size_t left, std::size_t right) {
-            const std::size_t left_depth = scope_depth(left);
-            const std::size_t right_depth = scope_depth(right);
+            const std::size_t left_depth = scope_depth[left];
+            const std::size_t right_depth = scope_depth[right];
             if (left_depth != right_depth) return left_depth < right_depth;
             return graph.scopes[left].first_token < graph.scopes[right].first_token;
         });
+    const JsBindingInterferenceGraph binding_interference(graph);
     for (std::size_t unit : unit_order) {
         const JsScope& function = graph.scopes[unit];
         const bool top_level_script = unit == 0 && mangle_top_level &&
@@ -1987,29 +1989,29 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
         } else if (eligible.size() > 2) {
             std::stable_sort(eligible.begin(), eligible.end(), more_profitable);
         }
-        const JsBindingInterferenceGraph binding_interference{graph};
-
         const JsNameAlphabet alphabet = build_js_frequency_alphabet(
             tokens, function.first_token, function.last_token, eligible.size() > 54);
 
-        std::vector<std::pair<std::string, std::size_t>> allocated_names;
-        allocated_names.reserve(eligible.size());
+        // Candidate indices are a perfect, allocation-free key for generated
+        // names in this unit. Most bindings reuse one of the first few names.
+        std::vector<std::vector<std::size_t>> allocations_by_candidate;
         for (std::size_t binding_id : eligible) {
             const JsBinding& binding = graph.bindings[binding_id];
             std::string replacement;
+            std::size_t selected_candidate = 0;
             for (std::size_t candidate_index = 0;; ++candidate_index) {
                 replacement = js_short_name(candidate_index, alphabet.first,
                                             alphabet.continuation);
                 if (occupied.count(replacement)) continue;
                 bool conflicts = false;
-                for (const auto& allocated : allocated_names) {
-                    if (allocated.first != replacement) continue;
-                    if (binding_interference.conflicts(binding_id, allocated.second)) {
+                if (candidate_index < allocations_by_candidate.size())
+                    for (std::size_t allocated : allocations_by_candidate[candidate_index]) {
+                    if (binding_interference.conflicts(binding_id, allocated)) {
                         conflicts = true;
                         break;
                     }
                 }
-                if (!conflicts) break;
+                if (!conflicts) { selected_candidate = candidate_index; break; }
             }
             std::size_t ordinary = 1, shorthand = 0;
             for (std::size_t reference_id : graph.references_by_binding[binding_id]) {
@@ -2036,7 +2038,9 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
                 replacements.push_back({tokens[reference.token].begin, tokens[reference.token].end,
                     shorthand ? std::string(binding.name) + ":" + replacement : replacement});
             }
-            allocated_names.push_back({replacement, binding_id});
+            if (selected_candidate >= allocations_by_candidate.size())
+                allocations_by_candidate.resize(selected_candidate + 1);
+            allocations_by_candidate[selected_candidate].push_back(binding_id);
             coordinated_names[binding_id] = replacement;
         }
     }
