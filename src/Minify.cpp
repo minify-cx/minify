@@ -2033,6 +2033,26 @@ std::vector<JsReplacement> plan_js_redundant_primary_parentheses(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_redundant_shorthand_properties(
+    const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    for (std::size_t key = 1; key + 2 < tokens.size(); ++key) {
+        const std::size_t value = key + 2;
+        if (tokens[key].kind != JsTokenKind::Identifier || tokens[key + 1].text != ":" ||
+            tokens[value].kind != JsTokenKind::Identifier ||
+            tokens[key].text != tokens[value].text) continue;
+        if (key >= syntax.identifier_roles.size() ||
+            syntax.identifier_roles[key] != JsIdentifierRole::PropertyKey) continue;
+        const std::size_t node = syntax.node_at_token[key];
+        const std::size_t parent = node < syntax.nodes.size() ? syntax.nodes[node].parent : 0;
+        if (parent >= syntax.nodes.size() ||
+            syntax.nodes[parent].role != JsGroupRole::ObjectLiteral) continue;
+        replacements.push_back({tokens[key + 1].begin, tokens[value].end, ""});
+        key = value;
+    }
+    return replacements;
+}
+
 [[maybe_unused]] std::vector<JsReplacement> plan_js_simple_destructuring_parameters(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
@@ -3922,6 +3942,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 auto primary_parentheses = plan_js_redundant_primary_parentheses(tokens, syntax);
                 replacements.insert(replacements.end(), primary_parentheses.begin(),
                                     primary_parentheses.end());
+                auto shorthand_properties = plan_js_redundant_shorthand_properties(tokens, syntax);
+                replacements.insert(replacements.end(), shorthand_properties.begin(),
+                                    shorthand_properties.end());
             }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));

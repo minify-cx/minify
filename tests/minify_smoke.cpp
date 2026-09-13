@@ -859,6 +859,10 @@ int main() {
     eq(structured,"function grouped($){return $}","structured printer removes redundant primary grouping");
     expect(minify::javascript("function conditions(value){if(value)return (value);return (eval)('value')}",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"function conditions(value){if(value)return value;return(eval)('value')}","structured printer preserves grammar and direct-eval grouping");
+    expect(minify::javascript("function shorthand(errorCodes){eval('');return {errorCodes:errorCodes}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function shorthand(errorCodes){eval('');return{errorCodes}}","structured printer restores redundant shorthand properties");
+    expect(minify::javascript("function publicKey(longValue){return {publicName:longValue}}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function publicKey($){return{publicName:$}}","structured shorthand restoration preserves public property spelling");
     expect(minify::javascript("const callback=function(){}\n(callback)()",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const callback=function(){}\n(callback)()","structured printer preserves expression-body ASI boundary");
     expect(minify::javascript_effect_signature("async function f(xs){for(const x of xs)await new Box(x);return x}",original_signature,err),err);
