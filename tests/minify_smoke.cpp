@@ -790,6 +790,9 @@ int main() {
     eq(renamed_signature,original_signature,"binding signature accepts consistent alpha renaming");
     expect(minify::javascript_binding_signature("function total($){return otherValue+externalValue}",renamed_signature,err),err);
     expect(renamed_signature != original_signature,"binding signature rejected inconsistent alpha renaming");
+    expect(minify::javascript_binding_signature("function outer(){function longHelper(value){return longHelper(value-1)}return longHelper(2)}",original_signature,err),err);
+    expect(minify::javascript_binding_signature("function outer(){function $(value){return $(value-1)}return $(2)}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"named function declaration binding topology");
     expect(minify::javascript_binding_signature("import {sourceName as localName} from 'pkg';export {localName as publicName};use(localName)",original_signature,err),err);
     expect(minify::javascript_binding_signature("import {sourceName as $} from 'pkg';export {$ as publicName};use($)",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"module signature resolves local aliases while preserving external names");
