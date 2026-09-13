@@ -799,6 +799,15 @@ int main() {
     expect(minify::javascript_binding_signature("function outer(){function helper(){return 1}function nested(){function helper(){return 2}return helper()}return helper()+nested()}",original_signature,err),err);
     expect(minify::javascript_binding_signature("function outer(){function $(){return 1}function nested(){function _(){return 2}return _()}return $()+nested()}",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"nested shadowed function declaration topology");
+    const std::vector<std::pair<std::string,std::string>> function_boundary_cases = {
+        {"function outer(){function helper(value=helper){return class Box{field=helper;method(){return helper(value)}}}return helper()}","function outer(){function $(value=$){return class Box{field=$;method(){return $(value)}}}return $()}"},
+        {"function outer(){function helper(){return 1}class Box{static value=helper;static{use(helper)}method(){return helper()}}return Box}","function outer(){function $(){return 1}class Box{static value=$;static{use($)}method(){return $()}}return Box}"}
+    };
+    for (const auto& item : function_boundary_cases) {
+        expect(minify::javascript_binding_signature(item.first,original_signature,err),err);
+        expect(minify::javascript_binding_signature(item.second,renamed_signature,err),err);
+        eq(renamed_signature,original_signature,"named function cross-boundary topology");
+    }
     expect(minify::javascript_binding_signature("import {sourceName as localName} from 'pkg';export {localName as publicName};use(localName)",original_signature,err),err);
     expect(minify::javascript_binding_signature("import {sourceName as $} from 'pkg';export {$ as publicName};use($)",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"module signature resolves local aliases while preserving external names");
