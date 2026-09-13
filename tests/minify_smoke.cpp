@@ -796,6 +796,9 @@ int main() {
     expect(minify::javascript_binding_signature("function outer(){return second(2);function first(value){return second(value)}function second(value){return value?first(value-1):0}}",original_signature,err),err);
     expect(minify::javascript_binding_signature("function outer(){return _(2);function $(value){return _(value)}function _(value){return value?$(value-1):0}}",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"hoisted mutually recursive function topology");
+    expect(minify::javascript_binding_signature("function outer(){function helper(){return 1}function nested(){function helper(){return 2}return helper()}return helper()+nested()}",original_signature,err),err);
+    expect(minify::javascript_binding_signature("function outer(){function $(){return 1}function nested(){function _(){return 2}return _()}return $()+nested()}",renamed_signature,err),err);
+    eq(renamed_signature,original_signature,"nested shadowed function declaration topology");
     expect(minify::javascript_binding_signature("import {sourceName as localName} from 'pkg';export {localName as publicName};use(localName)",original_signature,err),err);
     expect(minify::javascript_binding_signature("import {sourceName as $} from 'pkg';export {$ as publicName};use($)",renamed_signature,err),err);
     eq(renamed_signature,original_signature,"module signature resolves local aliases while preserving external names");
