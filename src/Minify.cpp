@@ -1998,6 +1998,41 @@ std::vector<JsReplacement> plan_js_single_arrow_parentheses(
     return replacements;
 }
 
+std::vector<JsReplacement> plan_js_redundant_primary_parentheses(
+    const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
+    std::vector<JsReplacement> replacements;
+    static const std::unordered_set<std::string_view> safe_before = {
+        "return", "throw", "yield", "await", "case", "=", ",", ":", "?",
+        "[", "{", "+", "-", "*", "/", "%", "**", "&&", "||", "??",
+        "&", "|", "^", "!", "~", "<", ">", "<=", ">=", "==", "!=",
+        "===", "!==", "=>", "in", "instanceof", "typeof", "void", "delete"
+    };
+    static const std::unordered_set<std::string_view> safe_after = {
+        ";", ",", ":", "?", "]", "}", ")", "+", "-", "*", "/", "%",
+        "**", "&&", "||", "??", "&", "|", "^", "<", ">", "<=", ">=",
+        "==", "!=", "===", "!==", "in", "instanceof"
+    };
+    for (std::size_t open = 1; open + 2 < tokens.size(); ++open) {
+        if (tokens[open].text != "(" || syntax.matching_token[open] != open + 2)
+            continue;
+        const JsToken& value = tokens[open + 1];
+        if (value.kind != JsTokenKind::Identifier && value.kind != JsTokenKind::Number &&
+            value.kind != JsTokenKind::String && value.kind != JsTokenKind::Regex &&
+            value.kind != JsTokenKind::Template) continue;
+        if (value.text == "eval") continue;
+        if (!safe_before.count(tokens[open - 1].text)) continue;
+        const std::size_t close = open + 2;
+        if (close + 1 < tokens.size() && !safe_after.count(tokens[close + 1].text))
+            continue;
+        if (value.kind == JsTokenKind::Number && close + 1 < tokens.size() &&
+            tokens[close + 1].text == ".") continue;
+        replacements.push_back({tokens[open].begin, tokens[open].end, ""});
+        replacements.push_back({tokens[close].begin, tokens[close].end, ""});
+        open = close;
+    }
+    return replacements;
+}
+
 [[maybe_unused]] std::vector<JsReplacement> plan_js_simple_destructuring_parameters(
     const std::vector<JsToken>& tokens, const JsConcreteSyntax& syntax) {
     std::vector<JsReplacement> replacements;
@@ -3884,6 +3919,9 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 auto arrow_parentheses = plan_js_single_arrow_parentheses(tokens);
                 replacements.insert(replacements.end(), arrow_parentheses.begin(),
                                     arrow_parentheses.end());
+                auto primary_parentheses = plan_js_redundant_primary_parentheses(tokens, syntax);
+                replacements.insert(replacements.end(), primary_parentheses.begin(),
+                                    primary_parentheses.end());
             }
             if (!replacements.empty()) {
                 const JsRewriteResult rewritten = apply_js_replacements(input, std::move(replacements));

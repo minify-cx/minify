@@ -855,6 +855,10 @@ int main() {
     eq(structured,"function f(){return\n{x:1}}/a/.test(x)","semantic printer preserves restricted return boundary while removing declaration boundary");
     expect(minify::javascript("if(flag){work()}\nelse{other()}\nfunction next(){return 1}\nnext()",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"if(flag){work()}else{other()}function next(){return 1}next()","structured printer removes block-boundary line terminators");
+    expect(minify::javascript("function grouped(longValue){return (longValue)}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function grouped($){return $}","structured printer removes redundant primary grouping");
+    expect(minify::javascript("function conditions(value){if(value)return (value);return (eval)('value')}",structured,err,{minify::OptimizationLevel::Structured}),err);
+    eq(structured,"function conditions(value){if(value)return value;return(eval)('value')}","structured printer preserves grammar and direct-eval grouping");
     expect(minify::javascript("const callback=function(){}\n(callback)()",structured,err,{minify::OptimizationLevel::Structured}),err);
     eq(structured,"const callback=function(){}\n(callback)()","structured printer preserves expression-body ASI boundary");
     expect(minify::javascript_effect_signature("async function f(xs){for(const x of xs)await new Box(x);return x}",original_signature,err),err);
@@ -896,11 +900,11 @@ int main() {
     expect(minify::jsx("const view=<Card value={(function total(longName){return longName})(3)} />;",structured,err,structured_jsx),err);
     eq(structured,"const view=<Card value={(function _($){return $})(3)} />;","explicit structured JSX expression optimization");
     expect(minify::javascript("const n=(200+30);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"const n=(230)","aggressive exact integer constant folding");
+    eq(aggressive,"const n=230","aggressive exact integer constant folding");
     expect(minify::javascript("const a=(100%7);const b=(255&15);const c=(8|3);const d=(7^3);const e=(1<2);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"const a=(2);const b=(15);const c=(11);const d=(4);const e=(!0)","aggressive exact integer operator folding");
+    eq(aggressive,"const a=2;const b=15;const c=11;const d=4;const e=(!0)","aggressive exact integer operator folding");
     expect(minify::javascript("const a=(100/4);const b=(100/3);",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
-    eq(aggressive,"const a=(25);const b=(100/3)","aggressive costed exact division compression");
+    eq(aggressive,"const a=25;const b=(100/3)","aggressive costed exact division compression");
     expect(minify::javascript("function f(){return undefined;}function g(undefined){return undefined;}",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
     eq(aggressive,"function f(){return void 0}function g($){return $}","aggressive unresolved undefined compression");
     expect(minify::javascript("undefined.value;undefined();undefined?.value;undefined=1;",aggressive,err,{minify::OptimizationLevel::Aggressive}),err);
