@@ -3687,7 +3687,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                               const std::vector<std::string>* property_allowlist = nullptr,
                               const std::vector<JavaScriptOptimizationPass>* disabled_passes = nullptr,
                               JsDiagnostics* diagnostics = nullptr,
-                              unsigned aggressive_round = 0) {
+                              unsigned aggressive_round = 0,
+                              bool binding_rename_done = false) {
     output.clear();
     output.reserve(input.size());
 
@@ -4178,9 +4179,12 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 return !disabled_passes || std::find(disabled_passes->begin(),
                     disabled_passes->end(), pass) == disabled_passes->end();
             };
-            auto replacements = pass_enabled(JavaScriptOptimizationPass::BindingRename)
+            const bool binding_rename_enabled =
+                pass_enabled(JavaScriptOptimizationPass::BindingRename) && !binding_rename_done;
+            auto replacements = binding_rename_enabled
                 ? plan_safe_js_parameter_renaming(tokens, syntax, scopes, mangle_top_level)
                 : std::vector<JsReplacement>{};
+            const bool renamed_bindings_this_round = !replacements.empty();
             if (pass_enabled(JavaScriptOptimizationPass::BindingRename)) {
                 auto arrow_parentheses = plan_js_single_arrow_parentheses(tokens);
                 replacements.insert(replacements.end(), arrow_parentheses.begin(),
@@ -4203,7 +4207,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                 return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                          aggressive_rewrite, aggressive_rewrite, aggressive_rewrite,
                                          mangle_top_level, property_allowlist, disabled_passes,
-                                         nullptr, aggressive_round);
+                                         nullptr, aggressive_round,
+                                         binding_rename_done || renamed_bindings_this_round);
             }
             constexpr unsigned aggressive_round_budget = 7;
             if (aggressive_rewrite && aggressive_round < aggressive_round_budget) {
@@ -4240,7 +4245,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
                     if (!rewritten.valid || !rewritten.smaller) { error.clear(); return true; }
                     return minify_javascript(rewritten.text, output, error, preserve_jsx_boundaries,
                                              true, true, true, mangle_top_level, property_allowlist,
-                                             disabled_passes, nullptr, aggressive_round + 1);
+                                             disabled_passes, nullptr, aggressive_round + 1,
+                                             binding_rename_done);
                 }
             }
         }
