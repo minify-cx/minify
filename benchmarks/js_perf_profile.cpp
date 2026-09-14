@@ -19,11 +19,6 @@ std::string read_file(const std::string& path) {
     return out.str();
 }
 
-double median(std::vector<double> values) {
-    std::sort(values.begin(), values.end());
-    const auto n = values.size();
-    return n % 2 ? values[n / 2] : (values[n / 2 - 1] + values[n / 2]) / 2.0;
-}
 }
 
 int main(int argc, char** argv) {

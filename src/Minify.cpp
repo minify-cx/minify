@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
 #include <functional>
 #include <initializer_list>
 #include <limits>
@@ -3668,6 +3671,22 @@ static bool minify_javascript(const std::string& input, std::string& output,
     output.clear();
     output.reserve(input.size());
 
+    const bool profile_stages = std::getenv("MINIFY_PROFILE_STAGES") != nullptr;
+    const auto scan_started = std::chrono::steady_clock::now();
+    bool scan_profile_emitted = false;
+    const auto emit_stage_profile = [&](const char* stage, auto started) {
+        if (!profile_stages) return;
+        const auto ended = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(ended - started).count();
+        std::cerr << "minify_stage round=" << aggressive_round << " bytes=" << input.size()
+                  << " stage=" << stage << " ms=" << ms << '\n';
+    };
+    const auto emit_scan_profile = [&]() {
+        if (scan_profile_emitted) return;
+        emit_stage_profile("scan_emit", scan_started);
+        scan_profile_emitted = true;
+    };
+
     bool pending_space = false;
     bool pending_newline = false;
     bool regex_boundary = false;
@@ -4114,10 +4133,19 @@ static bool minify_javascript(const std::string& input, std::string& output,
         output.pop_back();
     }
     if (recorder) {
+        emit_scan_profile();
+        auto stage_started = std::chrono::steady_clock::now();
         JsConcreteSyntax syntax = build_js_concrete_syntax(tokens);
+        emit_stage_profile("concrete_syntax", stage_started);
+        stage_started = std::chrono::steady_clock::now();
         JsScopeGraph scopes = build_js_scope_graph(tokens);
+        emit_stage_profile("scope_graph", stage_started);
+        stage_started = std::chrono::steady_clock::now();
         resolve_js_references(scopes, tokens, syntax);
+        emit_stage_profile("reference_resolution", stage_started);
+        stage_started = std::chrono::steady_clock::now();
         JsSemanticFacts facts = build_js_semantic_facts(tokens);
+        emit_stage_profile("semantic_facts", stage_started);
         if (diagnostics) populate_js_diagnostics(tokens, syntax, scopes, facts, *diagnostics);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
@@ -4192,6 +4220,7 @@ static bool minify_javascript(const std::string& input, std::string& output,
             }
         }
     }
+    emit_scan_profile();
     error.clear();
     return true;
 }
