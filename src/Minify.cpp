@@ -799,23 +799,30 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
     std::vector<bool> brace_creates_scope;
     brace_creates_scope.reserve(64);
     std::vector<bool> binding_at_token(tokens.size(), false);
+    // var/function redeclarations are the only declarations that coalesce.
+    // Keep a per-scope index so large generated scopes do not linearly rescan
+    // every preceding binding for each declaration.
+    std::vector<std::unordered_map<std::string_view, std::size_t>>
+        hoisted_bindings_by_name(1);
     JsScopeKind pending = JsScopeKind::Block;
     auto add_binding = [&](std::size_t scope, std::size_t token, JsBindingKind kind) {
         if (binding_at_token[token]) return;
         binding_at_token[token] = true;
+        if (hoisted_bindings_by_name.size() <= scope)
+            hoisted_bindings_by_name.resize(scope + 1);
         if (kind == JsBindingKind::Var || kind == JsBindingKind::Function) {
-            for (std::size_t existing : graph.scopes[scope].bindings) {
-                JsBinding& binding = graph.bindings[existing];
-                if (binding.name == tokens[token].text &&
-                    (binding.kind == JsBindingKind::Var || binding.kind == JsBindingKind::Function)) {
-                    binding.declaration_tokens.push_back(token);
-                    return;
-                }
+            auto& by_name = hoisted_bindings_by_name[scope];
+            const auto found = by_name.find(tokens[token].text);
+            if (found != by_name.end()) {
+                graph.bindings[found->second].declaration_tokens.push_back(token);
+                return;
             }
         }
         const std::size_t binding = graph.bindings.size();
         graph.bindings.push_back({tokens[token].text, token, scope, kind, {token}});
         graph.scopes[scope].bindings.push_back(binding);
+        if (kind == JsBindingKind::Var || kind == JsBindingKind::Function)
+            hoisted_bindings_by_name[scope].emplace(tokens[token].text, binding);
     };
     auto mark_dynamic_function = [&](std::size_t scope) {
         for (;;) {
