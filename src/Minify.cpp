@@ -1770,14 +1770,14 @@ std::vector<JsReplacement> plan_safe_js_parameter_renaming(
     if (mangle_top_level && !graph.scopes.empty() &&
         graph.scopes[0].kind == JsScopeKind::Script)
         unit_of_scope[0] = 0;
+    // Scopes are created parent-before-child. The owning function can therefore
+    // be propagated in one pass instead of walking every ancestor chain again
+    // for every scope in the mangler hot path.
     for (std::size_t scope = 1; scope < graph.scopes.size(); ++scope) {
-        unit_of_scope[scope] = unit_of_scope[graph.scopes[scope].parent];
-        for (std::size_t cursor = scope; cursor; cursor = graph.scopes[cursor].parent) {
-            if (graph.scopes[cursor].kind == JsScopeKind::Function) {
-                unit_of_scope[scope] = cursor;
-                break;
-            }
-        }
+        if (graph.scopes[scope].kind == JsScopeKind::Function)
+            unit_of_scope[scope] = scope;
+        else
+            unit_of_scope[scope] = unit_of_scope[graph.scopes[scope].parent];
     }
     std::vector<std::vector<std::size_t>> bindings_by_unit(graph.scopes.size());
     std::vector<std::vector<std::size_t>> references_by_unit(graph.scopes.size());
