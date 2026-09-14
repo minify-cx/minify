@@ -4165,9 +4165,12 @@ static bool minify_javascript(const std::string& input, std::string& output,
         stage_started = std::chrono::steady_clock::now();
         resolve_js_references(scopes, tokens, syntax);
         emit_stage_profile("reference_resolution", stage_started);
-        stage_started = std::chrono::steady_clock::now();
-        JsSemanticFacts facts = build_js_semantic_facts(tokens);
-        emit_stage_profile("semantic_facts", stage_started);
+        JsSemanticFacts facts;
+        if (aggressive_rewrite || diagnostics) {
+            stage_started = std::chrono::steady_clock::now();
+            facts = build_js_semantic_facts(tokens);
+            emit_stage_profile("semantic_facts", stage_started);
+        }
         if (diagnostics) populate_js_diagnostics(tokens, syntax, scopes, facts, *diagnostics);
         const bool ordered_tokens = js_tokens_are_ordered(input, tokens);
         if (structured_rewrite && syntax.balanced && ordered_tokens) {
