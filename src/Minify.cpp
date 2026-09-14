@@ -486,7 +486,9 @@ JsConcreteSyntax build_js_concrete_syntax(const std::vector<JsToken>& tokens) {
     syntax.function_contexts.resize(tokens.size(), JsFunctionContext::None);
     syntax.module_roles.resize(tokens.size(), JsModuleRole::None);
     syntax.parameter_initializer_tokens.resize(tokens.size(), false);
-    std::vector<std::size_t> groups{0};
+    std::vector<std::size_t> groups;
+    groups.reserve(64);
+    groups.push_back(0);
     for (std::size_t index = 0; index < tokens.size(); ++index) {
         const std::string_view text = tokens[index].text;
         JsSyntaxKind kind = text == "(" ? JsSyntaxKind::Parentheses
@@ -780,11 +782,22 @@ JsScopeGraph build_js_scope_graph(const std::vector<JsToken>& tokens) {
         return token.text == "import" || token.text == "export";
     });
     JsScopeGraph graph;
+    // Scope/binding/reference counts are bounded by token count. Reserving a
+    // conservative fraction avoids repeated large-vector relocation without
+    // committing token-sized memory for the common case.
+    const std::size_t structural_hint = tokens.size() / 8 + 8;
+    graph.scopes.reserve(tokens.size() / 16 + 8);
+    graph.bindings.reserve(structural_hint);
+    graph.references.reserve(tokens.size() / 4 + 8);
+    graph.unresolved_references.reserve(tokens.size() / 32 + 4);
     graph.scope_at_token.resize(tokens.size(), 0);
     graph.scopes.push_back({module ? JsScopeKind::Module : JsScopeKind::Script, 0, 0,
                             tokens.size(), false, {}});
-    std::vector<std::size_t> scopes{0};
+    std::vector<std::size_t> scopes;
+    scopes.reserve(64);
+    scopes.push_back(0);
     std::vector<bool> brace_creates_scope;
+    brace_creates_scope.reserve(64);
     std::vector<bool> binding_at_token(tokens.size(), false);
     JsScopeKind pending = JsScopeKind::Block;
     auto add_binding = [&](std::size_t scope, std::size_t token, JsBindingKind kind) {
@@ -3694,6 +3707,8 @@ static bool minify_javascript(const std::string& input, std::string& output,
     bool pending_control_paren = false;
     std::vector<bool> control_parens;
     std::vector<bool> block_braces;
+    control_parens.reserve(64);
+    block_braces.reserve(64);
     std::string last_token;
     [[maybe_unused]] std::vector<JsToken> tokens;
     // Structured and aggressive policy requests exercise the same non-mutating
