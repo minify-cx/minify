@@ -245,3 +245,9 @@ never describe either as measured successfully on this host.
 - Independent Linux confirmation is complete at Minify++ commit `2a51a38`: Valgrind 3.26.0 ran 30 maintained lifetime-corpus iterations with 0 errors, 0 bytes in use at exit, all 2,448 allocations freed, and no leaks possible. Peak Valgrind process RSS was 184,908 KiB.
 - Exact machine-readable evidence is retained at `docs/evidence/memory-safety-checkpoint-2b-valgrind.json`. Together with the clean sanitizer corpus, stable native RSS soak, CLI stress and deterministic fuzz corpus, this closes the standalone Minify++ memory/lifetime checkpoint without a production source repair.
 - Proceed next to Nift core lifecycle memory testing. Sustained Nift-owned Minify++/Jsonic++ integration pressure remains deliberately deferred to the later cross-project checkpoint.
+
+## 2026-09-14 — performance campaign CP1–CP6
+
+Performance work now has a checkpoint-level measurement discipline rather than being evaluated only at batch integration. CP1 freezes the acceptance rules; CP2 adds a repeatable API-level raw-sample harness; CP3 adds opt-in stage attribution; CP4 reduces predictable analysis allocation growth; and CP5 replaces linear var/function redeclaration rescans with a per-scope index. CP6 deliberately rejected a broad lexical-resolution cache after it failed to establish a stable representative win.
+
+Diagnostic stage samples showed the retained CP4/CP5 work reducing concrete-syntax/reference-resolution costs on the broad generated probe and scope-graph cost by roughly 15% on the redeclaration stress probe. These synthetic results are not substitutes for the external 12-fixture benchmark. Before the campaign advances, rerun all real bundles with same-run OXC, SWC, esbuild and Terser controls and reject any new post-validation failure or material default-mode regression. Full detail is in `docs/evidence/performance-cp1-6.md`.
