@@ -15,6 +15,7 @@ BENCH_ITERATIONS ?= 20
 JSPP_DIR ?= ../js
 JSPP_OBSERVER := $(TESTDIR)/jspp-frontend-observe
 MANGLE_INVENTORY := $(TESTDIR)/js-mangle-inventory
+JS_PERF_PROFILE := $(TESTDIR)/js-perf-profile
 
 all: $(TARGET)
 
@@ -71,6 +72,14 @@ benchmark:
 	else \
 	  $(TESTDIR)/minifypp-benchmark $(BENCH_REPETITIONS) $(BENCH_ITERATIONS); \
 	fi
+
+$(JS_PERF_PROFILE): benchmarks/js_perf_profile.cpp $(LIBSRC) include/minify/Minify.h
+	mkdir -p $(TESTDIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) benchmarks/js_perf_profile.cpp $(LIBSRC) -o $(JS_PERF_PROFILE)
+
+profile-js: $(JS_PERF_PROFILE)
+	@test -n "$(FILES)" || { echo "set FILES to representative JavaScript inputs" >&2; exit 2; }
+	$(JS_PERF_PROFILE) --runs $(or $(RUNS),5) $(FILES)
 
 $(JSPP_OBSERVER): benchmarks/jspp_frontend_observe.cpp
 	mkdir -p $(TESTDIR)
@@ -134,7 +143,7 @@ test-cli: $(TARGET)
 clean:
 	rm -rf $(TESTDIR) $(TARGET)
 
-.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark observe-jspp-frontend observe-js-mangling distcheck clean
+.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark profile-js observe-jspp-frontend observe-js-mangling distcheck clean
 
 test-formats:
 	bash tests/minify_format_idempotence.sh
