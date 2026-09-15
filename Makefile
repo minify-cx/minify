@@ -28,6 +28,12 @@ check-nift-sync:
 	@test -n "$(NIFT_MINIFYPP_DIR)" || { echo "set NIFT_MINIFYPP_DIR to Nift's minifypp directory" >&2; exit 2; }
 	bash scripts/check-nift-sync.sh "$(NIFT_MINIFYPP_DIR)"
 
+# Self-test of the release-tag-based check-nift-sync machinery against git
+# fixture repos (HEAD at tag, HEAD ahead, dirty tree, payload mismatch,
+# missing tag, newer sibling release, checker desync).
+test-check-nift-sync:
+	bash tests/check_nift_sync_test.sh
+
 test-fuzz:
 	mkdir -p $(TESTDIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) tests/fuzz_smoke.cpp $(LIBSRC) -o $(FUZZ_SMOKE)
@@ -143,7 +149,7 @@ test-cli: $(TARGET)
 clean:
 	rm -rf $(TESTDIR) $(TARGET)
 
-.PHONY: all test check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark profile-js observe-jspp-frontend observe-js-mangling distcheck clean
+.PHONY: all test check-nift-sync test-check-nift-sync test-smoke test-node test-module test-generated test-scope-semantics test-structured test-aggressive-differential test-real-bundles test-jsx test-css-semantics test-formats test-cross-format test-cli test-fuzz test-sanitize test-packaging memory-safety-smoke memory-safety-checkpoint-2 valgrind-memory-safety-checkpoint-2 benchmark profile-js observe-jspp-frontend observe-js-mangling distcheck clean
 
 test-formats:
 	bash tests/minify_format_idempotence.sh
